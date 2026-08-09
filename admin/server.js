@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS likes (post TEXT, username TEXT, ts INTEGER, UNIQUE(p
 for (const col of ['avatar TEXT', 'about TEXT', 'location TEXT', 'website TEXT']) { try { db.exec(`ALTER TABLE users ADD COLUMN ${col}`); } catch {} }
 try { db.exec('ALTER TABLE audit ADD COLUMN ip TEXT'); } catch {}  // audit now records source IP
 try { db.exec('ALTER TABLE users ADD COLUMN uid TEXT'); } catch {} // random, unguessable public id (anti-IDOR-enumeration)
+for (const col of ['stat_messages INTEGER', 'stat_reactions INTEGER', 'stat_points INTEGER']) { try { db.exec(`ALTER TABLE users ADD COLUMN ${col}`); } catch {} } // admin-editable stat overrides (NULL = auto)
 const newUid = () => crypto.randomBytes(12).toString('base64url');
 if (process.argv.includes('--reset')) { db.exec('DELETE FROM users; DELETE FROM audit; DELETE FROM comments; DELETE FROM likes;'); console.log('data reset.'); }
 if (!db.prepare('SELECT id FROM users WHERE username_lc=?').get(ADMIN.username.toLowerCase())) {
@@ -51,7 +52,8 @@ if (!db.prepare('SELECT id FROM users WHERE username_lc=?').get(ADMIN.username.t
   console.log(`\n  admin ready -> ${ADMIN.username}  (email: ${ADMIN.email})${process.env.ADMIN_PASSWORD ? '' : `\n  GENERATED PASSWORD (save it now): ${ADMIN.password}`}\n  [configure via env: ADMIN_USERNAME / ADMIN_PASSWORD / ADMIN_EMAIL / JWT_SECRET]\n`);
 }
 for (const r of db.prepare("SELECT id FROM users WHERE uid IS NULL OR uid=''").all()) db.prepare('UPDATE users SET uid=? WHERE id=?').run(newUid(), r.id);  // backfill any legacy rows
-const log = (actor, action, target, ip) => db.prepare('INSERT INTO audit (ts,actor,action,target,ip) VALUES (?,?,?,?,?)').run(Date.now(), actor, action, String(target || ''), String(ip || ''));
+const cleanIp = (ip) => String(ip || '').replace(/^::ffff:/, '').replace(/^::1$/, '127.0.0.1') || '—';
+const log = (actor, action, target, ip) => db.prepare('INSERT INTO audit (ts,actor,action,target,ip) VALUES (?,?,?,?,?)').run(Date.now(), actor, action, String(target || ''), cleanIp(ip));
 
 // ---- JWT / captcha / rate limit ----
 const ABS_MS = 15 * 60e3;      // absolute session lifetime: 15 minutes
@@ -249,9 +251,11 @@ function userStats(u) {
   const owner = isAdminName(u.username);
   const posts = owner ? listPosts().filter((p) => !p.draft).length : 0;
   const comments = db.prepare('SELECT COUNT(*) c FROM comments WHERE username=?').get(u.username).c;
-  const messages = posts + comments;
-  const reactions = owner ? db.prepare('SELECT COUNT(*) c FROM likes').get().c : 0;
-  return { messages, reactions, points: reactions + messages };
+  // admin-set overrides win; otherwise auto-computed
+  const messages = u.stat_messages != null ? u.stat_messages : posts + comments;
+  const reactions = u.stat_reactions != null ? u.stat_reactions : (owner ? db.prepare('SELECT COUNT(*) c FROM likes').get().c : 0);
+  const points = u.stat_points != null ? u.stat_points : reactions + messages;
+  return { messages, reactions, points };
 }
 // one hidden hover card per referenced user (owner + newest members); JS shows the one matching the hovered avatar
 function uprofileCards() {
@@ -354,7 +358,7 @@ const userByUid = (uid) => db.prepare('SELECT * FROM users WHERE uid=?').get(Str
 app.post('/admin-panel/approve/:uid', needAdmin, (req, res) => { const u = userByUid(req.params.uid); if (u) { db.prepare('UPDATE users SET approved=1 WHERE id=?').run(u.id); log(req.u.sub, 'approve', u.username, req.ip); } res.redirect('/admin-panel'); });
 app.post('/admin-panel/suspend/:uid', needAdmin, (req, res) => { const u = userByUid(req.params.uid); if (u && !isAdminName(u.username)) { db.prepare('UPDATE users SET suspended=1 WHERE id=?').run(u.id); log(req.u.sub, 'suspend', u.username, req.ip); } res.redirect('/admin-panel'); });
 app.post('/admin-panel/unsuspend/:uid', needAdmin, (req, res) => { const u = userByUid(req.params.uid); if (u) { db.prepare('UPDATE users SET suspended=0 WHERE id=?').run(u.id); log(req.u.sub, 'unsuspend', u.username, req.ip); } res.redirect('/admin-panel'); });
-app.post('/admin-panel/role/:uid', needAdmin, (req, res) => { const u = userByUid(req.params.uid); if (u && !isAdminName(u.username)) { const role = ['user', 'moderator', 'admin'].includes(req.body.role) ? req.body.role : 'user'; db.prepare('UPDATE users SET role=?, approved=1 WHERE id=?').run(role, u.id); log(req.u.sub, 'role:' + role, u.username, req.ip); } res.redirect('/admin-panel'); });
+app.post('/admin-panel/role/:uid', needAdmin, (req, res) => { const u = userByUid(req.params.uid); if (u && !isAdminName(u.username) && lc(u.username) !== lc(req.u.sub)) { const role = ['user', 'moderator', 'admin'].includes(req.body.role) ? req.body.role : 'user'; db.prepare('UPDATE users SET role=?, approved=1 WHERE id=?').run(role, u.id); log(req.u.sub, 'role:' + role, u.username, req.ip); } res.redirect('/admin-panel'); });
 app.post('/admin-panel/delete-user/:uid', needAdmin, (req, res) => { const u = userByUid(req.params.uid); if (u && !isAdminName(u.username)) { db.prepare('DELETE FROM users WHERE id=?').run(u.id); log(req.u.sub, 'delete-user', u.username, req.ip); } res.redirect('/admin-panel'); });
 app.post('/admin-panel/add-user', needAdmin, (req, res) => {
   const { username, email, password, role } = req.body;
@@ -384,16 +388,23 @@ app.get('/admin-panel/edit/:slug', needAdmin, (req, res) => { const p = readPost
 app.post('/admin-panel/save-post', needAdmin, (req, res) => { const slug = writePost({ ...req.body, draft: req.body.draft === 'true' }); log(req.u.sub, 'save-post', slug, req.ip); rebuild(); res.redirect('/admin-panel?msg=post_saved'); });
 
 // ---- edit user / profile (admin) ----
-app.get('/admin-panel/edit-user/:uid', needAdmin, (req, res) => { const u = userByUid(req.params.uid); if (!u) return res.redirect('/admin-panel'); res.type('html').send(pageEditUser(u)); });
+app.get('/admin-panel/edit-user/:uid', needAdmin, (req, res) => { const u = userByUid(req.params.uid); if (!u) return res.redirect('/admin-panel'); res.type('html').send(pageEditUser(u, '', req.u.sub)); });
 app.post('/admin-panel/save-user/:uid', needAdmin, (req, res) => {
   const u = userByUid(req.params.uid); if (!u) return res.redirect('/admin-panel');
+  const self = lc(u.username) === lc(req.u.sub);   // "am I editing my own account?" — decided from the JWT, not the body
+  const primary = isAdminName(u.username);          // the seed admin identity
   const { username, email, password, role } = req.body;
-  if (username && lc(username) !== u.username_lc && db.prepare('SELECT id FROM users WHERE username_lc=?').get(lc(username))) return res.type('html').send(pageEditUser(u, 'That username is already taken.'));
-  if (email && lc(email) !== u.email_lc && db.prepare('SELECT id FROM users WHERE email_lc=?').get(lc(email))) return res.type('html').send(pageEditUser(u, 'That email is already registered.'));
-  if (username) db.prepare('UPDATE users SET username=?, username_lc=? WHERE id=?').run(String(username).trim(), lc(username), u.id);
+  // username: editable for other users only; the primary admin username is fixed (it's the seed identity)
+  if (username && !primary && lc(username) !== u.username_lc && db.prepare('SELECT id FROM users WHERE username_lc=?').get(lc(username))) return res.type('html').send(pageEditUser(u, 'That username is already taken.', req.u.sub));
+  if (email && lc(email) !== u.email_lc && db.prepare('SELECT id FROM users WHERE email_lc=?').get(lc(email))) return res.type('html').send(pageEditUser(u, 'That email is already registered.', req.u.sub));
+  if (username && !primary) db.prepare('UPDATE users SET username=?, username_lc=? WHERE id=?').run(String(username).trim(), lc(username), u.id);
   if (email) db.prepare('UPDATE users SET email=?, email_lc=? WHERE id=?').run(String(email).trim(), lc(email), u.id);
   if (password && String(password).length >= 8) db.prepare('UPDATE users SET pass_hash=? WHERE id=?').run(bcrypt.hashSync(password, 10), u.id);
-  if (role && ['user', 'moderator', 'admin'].includes(role) && !isAdminName(u.username)) db.prepare('UPDATE users SET role=? WHERE id=?').run(role, u.id);
+  // ROLE is authority — never take it from the client for your own record or the primary admin. Your privilege stays whatever your token says.
+  if (role && ['user', 'moderator', 'admin'].includes(role) && !primary && !self) db.prepare('UPDATE users SET role=? WHERE id=?').run(role, u.id);
+  // admin-editable stat overrides (blank -> revert to auto)
+  const numOrNull = (v) => (v === undefined || String(v).trim() === '' ? null : (Number.isFinite(+v) ? Math.max(0, Math.trunc(+v)) : null));
+  db.prepare('UPDATE users SET stat_messages=?, stat_reactions=?, stat_points=? WHERE id=?').run(numOrNull(req.body.stat_messages), numOrNull(req.body.stat_reactions), numOrNull(req.body.stat_points), u.id);
   log(req.u.sub, 'edit-user', u.username, req.ip); res.redirect('/admin-panel?msg=save_ok');
 });
 
@@ -466,37 +477,37 @@ function renderComments(slug, user) {
 // ================= inline themed admin/auth HTML =================
 // Admin theme: intentionally minimal — light neutrals, normal (roman) serif, no blocky display font, no bright fills.
 const THEME = `<style>
- :root{--bg:#f7f4ef;--card:#fff;--ink:#2a3340;--muted:#8a8172;--border:#e7e1d8;--bh:#d8d0c4;--accent:#2a3340;--link:#3a5f80;--red:#a4564f;--green:#4f7a5c;--soft:#f1ece4}
+ :root{--bg:#f7f4ef;--card:#f4efe7;--ink:#2a3340;--muted:#8a8172;--border:#e7e1d8;--bh:#d8d0c4;--accent:#2a3340;--link:#3a5f80;--red:#a4564f;--green:#4f7a5c;--soft:#f1ece4}
  *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:'Roboto Slab',Georgia,'Times New Roman',serif;font-size:15px;line-height:1.5}
- .top{display:flex;align-items:center;height:58px;padding:0 22px;border-bottom:1px solid var(--border);background:#fff}
+ .top{display:flex;align-items:center;height:58px;padding:0 22px;border-bottom:1px solid var(--border);background:var(--card)}
  .brand{font-weight:700;font-size:18px;letter-spacing:.2px;color:var(--ink)}.brand .a,.brand .b{color:var(--ink)}
  a{color:var(--link);text-decoration:none}a:hover{text-decoration:underline}
  .wrap{max-width:1040px;margin:24px auto;padding:0 22px}
  h1{font-weight:700;font-size:21px;margin:0 0 6px}
  .sec{font-weight:700;font-size:13px;color:var(--muted);letter-spacing:.5px;text-transform:uppercase;margin:28px 0 12px}
- .card{background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:0 1px 3px rgba(18,32,58,.10),0 1px 2px rgba(18,32,58,.06);padding:24px}
+ .card{background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:0 1px 3px rgba(18,32,58,.10),0 1px 2px rgba(18,32,58,.06);padding:24px}
  .auth{max-width:440px;margin:9vh auto}
  label{display:block;font-weight:600;font-size:12.5px;color:var(--muted);margin:14px 0 6px}
- input,select,textarea{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:15px;background:#fff;color:var(--ink)}
+ input,select,textarea{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:15px;background:var(--card);color:var(--ink)}
  input:focus,select:focus{outline:none;border-color:var(--accent)}
  .pw-wrap{position:relative;display:flex;align-items:stretch}.pw-wrap input{flex:1;padding-right:64px}
  .pw-eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:var(--soft);border:1px solid var(--border);border-radius:6px;font-size:11px;font-weight:600;color:var(--muted);padding:4px 9px;cursor:pointer;font-family:inherit}
  .pw-eye:hover{color:var(--accent);border-color:var(--accent)}
  .btn{font-family:inherit;font-weight:600;font-size:13px;background:var(--ink);color:#fff;border:0;border-radius:7px;padding:8px 14px;cursor:pointer}
- .btn.pink{background:var(--accent)}.btn.ghost{background:#fff;color:var(--ink);border:1px solid var(--bh)}.btn.red{background:#fff;color:var(--red);border:1px solid #e3c9c6}
+ .btn.pink{background:var(--accent)}.btn.ghost{background:var(--card);color:var(--ink);border:1px solid var(--bh)}.btn.red{background:var(--card);color:var(--red);border:1px solid #e3c9c6}
  form.inline{display:inline}
  .err{background:#fbeeed;border:1px solid #eccfcb;color:var(--red);border-radius:8px;padding:10px 12px;margin:14px 0}
  .ok{background:#eef4ef;border:1px solid #d5e4d9;color:var(--green);border-radius:8px;padding:12px 14px;margin:14px 0}
  .muted{color:var(--muted);font-size:14px}.bar{display:flex;gap:10px;justify-content:space-between;align-items:center;margin-top:18px}
  .cap{display:flex;gap:12px;align-items:center}.cap .q{font-weight:600;font-size:13px;background:var(--soft);border:1px solid var(--border);border-radius:8px;padding:9px 12px;white-space:nowrap}
- table{width:100%;border-collapse:separate;border-spacing:0;background:#fff;border:1px solid var(--border);border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(18,32,58,.10),0 1px 2px rgba(18,32,58,.06)}
+ table{width:100%;border-collapse:separate;border-spacing:0;background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(18,32,58,.10),0 1px 2px rgba(18,32,58,.06)}
  th,td{padding:10px 12px;border-bottom:1px solid var(--border);text-align:left;font-size:14px;vertical-align:middle}
  th{font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);background:var(--soft)}
  .pill{display:inline-block;font-weight:600;font-size:10.5px;border-radius:5px;padding:2px 8px;border:1px solid transparent}
  .pill.admin{background:#eef1f5;color:#3a5068;border-color:#dbe2ea}.pill.mod{background:#eef0f6;color:#5b5896;border-color:#dfe0ee}.pill.user{background:var(--soft);color:var(--muted);border-color:var(--border)}
  .pill.ok{background:#eef4ef;color:var(--green);border-color:#d5e4d9}.pill.pend{background:#f6f0e4;color:#8a6d1f;border-color:#e8ddc4}.pill.susp{background:#fbeeed;color:var(--red);border-color:#eccfcb}
  .acts{display:flex;gap:6px;flex-wrap:wrap;align-items:center}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
- .cmt{border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;background:#fff}
+ .cmt{border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px;background:var(--card)}
  .cmt .h{font-size:12.5px;color:var(--muted)}.cmt .b{font-size:14.5px;white-space:pre-wrap}
  .log{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
 </style>`;
@@ -591,14 +602,24 @@ function pageEditor(post) {
   <script>var mde=new EasyMDE({element:document.getElementById('body'),spellChecker:false,autofocus:true,toolbar:['bold','italic','heading','|','quote','code','unordered-list','ordered-list','|','link','image','table','|','preview','side-by-side','fullscreen','|','guide'],status:['lines','words']});</script>` + FOOT;
 }
 
-function pageEditUser(u, err = '') {
+function pageEditUser(u, err = '', actorSub = '') {
+  const st = userStats(u);
+  const self = lc(u.username) === lc(actorSub);        // editing your own account
+  const primary = isAdminName(u.username);
+  const roleLocked = primary || self;                  // your own/the primary admin's role can't be set from here
   return HEAD('Edit user') + `<div class="wrap"><a class="muted" href="/admin-panel">&larr; Back to admin panel</a>
   <form class="card" method="post" action="/admin-panel/save-user/${u.uid}" style="max-width:560px;margin-top:14px"><h1>Edit user</h1>
     ${err ? `<div class="err">${esc(err)}</div>` : ''}
-    <label>Username</label><input name="username" value="${esc(u.username)}">
+    <label>Username</label>${primary ? `<input value="${esc(u.username)}" disabled><p class="muted" style="text-transform:none">The primary admin username is fixed.</p>` : `<input name="username" value="${esc(u.username)}">`}
     <label>Email</label><input name="email" type="email" value="${esc(u.email)}">
     <label>New password <span class="muted" style="text-transform:none">(leave blank to keep)</span></label>${PW('password', 'autocomplete="new-password"')}
-    ${isAdminName(u.username) ? '<input type="hidden" name="role" value="admin"><p class="muted">Primary admin — role locked.</p>' : `<label>Role</label><select name="role"><option ${u.role === 'user' ? 'selected' : ''}>user</option><option ${u.role === 'moderator' ? 'selected' : ''}>moderator</option><option ${u.role === 'admin' ? 'selected' : ''}>admin</option></select>`}
+    ${roleLocked ? `<label>Role</label><p class="muted" style="text-transform:none">${self ? 'Your own role is taken from your session — it can’t be changed here.' : 'Primary admin — role locked.'} (currently ${esc(u.role)})</p>` : `<label>Role</label><select name="role"><option ${u.role === 'user' ? 'selected' : ''}>user</option><option ${u.role === 'moderator' ? 'selected' : ''}>moderator</option><option ${u.role === 'admin' ? 'selected' : ''}>admin</option></select>`}
+    <label>Profile stats <span class="muted" style="text-transform:none">(shown on the hover card & member page)</span></label>
+    <div class="grid" style="grid-template-columns:1fr 1fr 1fr;gap:10px">
+      <div><label>Messages</label><input name="stat_messages" type="number" value="${st.messages}"></div>
+      <div><label>Reaction score</label><input name="stat_reactions" type="number" value="${st.reactions}"></div>
+      <div><label>Points</label><input name="stat_points" type="number" value="${st.points}"></div>
+    </div>
     <div class="bar"><a class="btn ghost" href="/admin-panel">Cancel</a><button class="btn pink" type="submit">Save changes</button></div>
   </form></div>` + FOOT;
 }
@@ -660,7 +681,7 @@ function accountPanel(u, tab, q = {}) {
     </form>
     ${u.avatar ? `<form method="post" action="/account/remove-avatar" style="margin:8px 0 18px"><button class="acct-link-btn" type="submit">Remove current photo</button></form>` : '<div style="height:8px"></div>'}
     <form class="acct-form" method="post" action="/account/details">
-      <div class="frow"><div class="lab">Username</div><div class="fld">${esc(u.username)}<div class="hint">Contact an administrator to change your username.</div></div></div>
+      <div class="frow"><div class="lab">Username</div><div class="fld">${esc(u.username)}</div></div>
       <div class="frow"><div class="lab">Email</div><div class="fld">${esc(u.email)}</div></div>
       <div class="frow"><div class="lab">Location</div><div class="fld"><input type="text" name="location" value="${esc(u.location)}" maxlength="120"></div></div>
       <div class="frow"><div class="lab">Website</div><div class="fld"><input type="text" name="website" value="${esc(u.website)}" maxlength="200" placeholder="https://"></div></div>

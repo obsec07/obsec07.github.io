@@ -69,7 +69,7 @@ const latestPosts = all.slice(0, 5);
               <div>
                 <a href={href('/posts/' + p.id)}>{p.data.title}</a>
                 <div class="m">Latest: {SITE.handle} · {fmt(p.data.date)}</div>
-                <div class="m">{CATEGORY_LABELS[p.data.category] ?? p.data.category}</div>
+                <div class="m"><a class="cat-link" href={href('/' + p.data.category)}>{CATEGORY_LABELS[p.data.category] ?? p.data.category}</a></div>
               </div>
             </li>
           ))}
