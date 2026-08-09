@@ -1,0 +1,25 @@
+# One-click deploy on Render (a free host that runs the Node server).
+#   Render dashboard -> New -> Blueprint -> connect this repo -> it reads this file.
+# Gives a hostname like  https://tobi-blog.onrender.com  (custom domain, e.g. tobi.sh, added in the dashboard).
+services:
+  - type: web
+    name: tobi-blog
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: node admin/server.js
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22.12.0"
+      # JWT signing secret — generated once and kept, so logins survive restarts. Never in the repo.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_USERNAME
+        value: "t0b!"
+      - key: ADMIN_EMAIL
+        value: "tobi@example.com"
+      # Set this yourself in the dashboard (Environment tab) — it is intentionally not stored here.
+      - key: ADMIN_PASSWORD
+        sync: false

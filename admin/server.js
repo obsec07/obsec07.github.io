@@ -17,7 +17,7 @@ const ROOT = path.resolve(__dirname, '..');
 const DIST = path.join(ROOT, 'dist');
 const POSTS_DIR = path.join(ROOT, 'src', 'content', 'posts');
 const DB_PATH = path.join(__dirname, 'app.db');
-const PORT = process.env.APP_PORT || 4331;
+const PORT = process.env.PORT || process.env.APP_PORT || 4331;   // hosts inject PORT
 const CATEGORIES = ['0day', 'ctf', 'infosec', 'tools'];
 // JWT secret: from env, else a persisted random file (gitignored) so restarts keep sessions — never hardcoded.
 const SECRET_FILE = path.join(__dirname, '.secret');

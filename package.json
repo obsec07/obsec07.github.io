@@ -3,6 +3,9 @@
   "type": "module",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22.5.0"
+  },
   "scripts": {
     "dev": "astro dev --host",
     "build": "astro build",
@@ -16,12 +19,10 @@
     "@astrojs/rss": "^4.0.11",
     "@astrojs/sitemap": "^3.4.0",
     "astro": "^5.13.0",
-    "multer": "^2.2.0"
-  },
-  "devDependencies": {
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.7",
     "express": "^4.21.2",
-    "gray-matter": "^4.0.3"
+    "gray-matter": "^4.0.3",
+    "multer": "^2.2.0"
   }
 }
