@@ -1,0 +1,96 @@
+---
+import Base from '../layouts/Base.astro';
+import CategoryRow from '../components/CategoryRow.astro';
+import { SITE, SECTIONS, CATEGORY_LABELS } from '../config';
+import { getCollection } from 'astro:content';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const href = (p: string) => (base + p).replace(/\/{2,}/g, '/') || '/';
+
+const all = (await getCollection('posts', ({ data }) => !data.draft))
+  .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
+const av = SITE.handle.slice(0, 2).toUpperCase();
+const avatar = (base + '/avatar.svg').replace(/\/{2,}/g, '/');
+const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+function forCat(key: string) {
+  const items = all.filter((p) => p.data.category === key);
+  const latest = items[0]
+    ? { title: items[0].data.title, url: href('/posts/' + items[0].id), date: items[0].data.date.toISOString().slice(0, 10), author: SITE.handle }
+    : null;
+  const isNew = items[0] ? (Date.now() - items[0].data.date.valueOf()) / 864e5 < 21 : false;
+  return { count: items.length, latest, isNew };
+}
+const latestPosts = all.slice(0, 5);
+---
+<Base>
+  {SITE.banner && <div class="banner">{SITE.banner}</div>}
+
+  <div class="home">
+    <div class="col">
+      <div class="home-tools">
+        <a class="newposts-btn" href={href('/whats-new')}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>
+          New posts
+        </a>
+        <button class="icon-btn" id="fs-btn" title="Toggle fullscreen" aria-label="fullscreen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3"/></svg>
+        </button>
+      </div>
+      <div class="forum-title">{SITE.handle}</div>
+
+      {SECTIONS.map((sec) => (
+        <div class="section">
+          <div class="section-head" role="button" tabindex="0">
+            <div>
+              <h2>{sec.title}</h2>
+              {sec.subtitle && <span class="sub">{sec.subtitle}</span>}
+            </div>
+            <span class="chev">▲</span>
+          </div>
+          <div class="rows">
+            {sec.items.map((it) => {
+              if (it.page) return <CategoryRow title={it.title} desc={it.desc} href={href(it.href!)} page={true} />;
+              const s = forCat(it.key);
+              return <CategoryRow title={it.title} desc={it.desc} href={href('/' + it.key)} count={s.count} isNew={s.isNew} latest={s.latest} avatar={av} unread={s.isNew} />;
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+
+    <aside class="side">
+      <div class="widget">
+        <h3>Latest posts</h3>
+        <ul class="lp">
+          {latestPosts.map((p) => (
+            <li>
+              <img class="av" src={`/avatar/${encodeURIComponent(SITE.handle)}`} data-uprofile={SITE.handle} alt="" width="34" height="34" loading="lazy" />
+              <div>
+                <a href={href('/posts/' + p.id)}>{p.data.title}</a>
+                <div class="m">Latest: {SITE.handle} · {fmt(p.data.date)}</div>
+                <div class="m">{CATEGORY_LABELS[p.data.category] ?? p.data.category}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </aside>
+  </div>
+
+  <script is:inline>
+    (function () {
+      var b = document.getElementById('fs-btn');
+      if (b) b.addEventListener('click', function () {
+        if (!document.fullscreenElement) document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
+        else document.exitFullscreen && document.exitFullscreen();
+      });
+      // collapsible sections (chevron toggles the rows)
+      document.querySelectorAll('.section-head').forEach(function (h) {
+        function toggle() { h.closest('.section').classList.toggle('collapsed'); }
+        h.addEventListener('click', toggle);
+        h.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+      });
+    })();
+  </script>
+</Base>

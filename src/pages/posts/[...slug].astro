@@ -1,0 +1,61 @@
+---
+import Base from '../../layouts/Base.astro';
+import { getCollection, render } from 'astro:content';
+import { CATEGORY_LABELS, SITE } from '../../config';
+
+export async function getStaticPaths() {
+  const posts = await getCollection('posts', ({ data }) => !data.draft);
+  return posts.map((post) => ({ params: { slug: post.id }, props: { post } }));
+}
+const { post } = Astro.props;
+const { Content } = await render(post);
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const href = (p: string) => (base + p).replace(/\/{2,}/g, '/') || '/';
+const label = CATEGORY_LABELS[post.data.category] ?? post.data.category;
+const catHref = href('/' + post.data.category);
+const d = post.data.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+---
+<Base title={post.data.title} description={post.data.description}>
+  <nav class="crumbs-box" aria-label="Breadcrumb">
+    <a href={href('/')}>⌂ Home</a>
+    <span class="sep">›</span><a href={href('/')}>Forums</a>
+    <span class="sep">›</span><a href={href('/')}>Blogs</a>
+    <span class="sep">›</span><span class="here">{label}</span>
+  </nav>
+
+  <article class="thread">
+    <header class="thread-head">
+      <h1>{post.data.title}</h1>
+      <div class="thread-by">
+        <span class="by">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          {SITE.handle}
+        </span>
+        <span class="mid-dot">·</span>
+        <span class="by">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          {d}
+        </span>
+      </div>
+    </header>
+
+    <div class="message">
+      <div class="message-top">
+        <span class="msg-date"><span class="live-dot"></span>{d}</span>
+        <button class="msg-share" type="button" aria-label="Share"
+          onclick="if(navigator.share){navigator.share({url:location.href})}else if(navigator.clipboard){navigator.clipboard.writeText(location.href)}">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg>
+        </button>
+      </div>
+      <div class="prose">
+        {post.data.tags && post.data.tags.length > 0 && (
+          <div class="post-tags"><a href={catHref}><span class="chip">{label}</span></a>{post.data.tags.map((t) => <span class="tag">{t}</span>)}</div>
+        )}
+        <Content />
+      </div>
+    </div>
+    <div class="author-card"><!--AUTHORCARD--></div>
+  </article>
+
+  <section class="comments"><!--COMMENTS_SLOT--></section>
+</Base>

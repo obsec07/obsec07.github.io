@@ -1,0 +1,30 @@
+---
+import Base from '../layouts/Base.astro';
+import { SITE } from '../config';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<Base title="Who Am I">
+  <article class="article">
+    <a class="back" href={base || '/'}>&larr; back to forums</a>
+    <h1>Who Am I</h1>
+    <div class="prose">
+      <p>
+        I'm <strong>tobi</strong> — a security researcher. I hunt for bugs in web apps, play CTFs,
+        and write up the interesting ones here. Expect CTF writeups, the occasional 0day / CVE, and
+        infosec blog posts.
+      </p>
+      <h2>What you'll find here</h2>
+      <ul>
+        <li><strong>CTF Writeups</strong> — challenge walkthroughs I found interesting or enjoyable.</li>
+        <li><strong>0day / research</strong> — vulnerabilities and CVEs I've dug into.</li>
+        <li><strong>InfoSec Blog</strong> — notes, techniques and things I've learned.</li>
+        <li><strong>Tools</strong> — scripts and tooling I release.</li>
+      </ul>
+      <h2>Contact</h2>
+      <ul>
+        <li>twitter — <a href={SITE.socials.twitter}>{SITE.socials.twitter}</a></li>
+        <li>mail — <a href={`mailto:${SITE.email}`}>{SITE.email}</a></li>
+      </ul>
+    </div>
+  </article>
+</Base>

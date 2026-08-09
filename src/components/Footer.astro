@@ -1,0 +1,54 @@
+---
+import { SITE, CATEGORY_LABELS } from '../config';
+import { getCollection } from 'astro:content';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const href = (p: string) => (base + p).replace(/\/{2,}/g, '/') || '/';
+const posts = (await getCollection('posts', ({ data }) => !data.draft))
+  .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf())
+  .slice(0, 3);
+const avatar = (base + '/avatar.svg').replace(/\/{2,}/g, '/');
+const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+---
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-col">
+        <h4>Online statistics</h4>
+        <ul class="foot-stats">
+          <li><span>Members online:</span><span>1</span></li>
+          <li><span>Guests online:</span><span>0</span></li>
+          <li><span>Total visitors:</span><span>1</span></li>
+        </ul>
+        <div class="box">Totals may include hidden visitors.</div>
+      </div>
+
+      <div class="foot-col">
+        <h4>Latest posts</h4>
+        <ul class="foot-posts">
+          {posts.map((p) => (
+            <li>
+              <img class="av" src={`/avatar/${encodeURIComponent(SITE.handle)}`} data-uprofile={SITE.handle} alt="" width="34" height="34" loading="lazy" />
+              <div>
+                <a href={href('/posts/' + p.id)}>{p.data.title}</a>
+                <div class="m">Latest: {SITE.handle} · {fmt(p.data.date)}</div>
+                <div class="m">{CATEGORY_LABELS[p.data.category] ?? p.data.category}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <div class="foot-col foot-members">
+        <h4>Newest members</h4>
+        <div class="foot-member-list"><!--MEMBERS_SLOT--></div>
+      </div>
+
+      <div class="foot-col foot-social">
+        <h4>Stay connected</h4>
+        <a href={SITE.socials.twitter} aria-label="twitter/x">
+          <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24h-6.66l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231 5.45-6.231Zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77Z"/></svg>
+        </a>
+      </div>
+    </div>
+  </div>
+</footer>

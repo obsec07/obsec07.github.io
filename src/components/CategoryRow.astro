@@ -1,0 +1,40 @@
+---
+interface Latest { title: string; url: string; date: string; author: string; }
+interface Props {
+  title: string; desc: string; href: string;
+  count?: number; isNew?: boolean; unread?: boolean; latest?: Latest | null; page?: boolean;
+}
+const { title, desc, href, count = 0, isNew = false, unread = false, latest = null, page = false } = Astro.props;
+const avatar = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/avatar.svg').replace(/\/{2,}/g, '/');
+---
+<div class={`row${unread ? ' unread' : ''}${page ? ' page' : ''}`}>
+  <a class="icon" href={href} aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/>
+      <path d="M14 3v5h5M9 13h6M9 17h6"/>
+    </svg>
+  </a>
+  <div class="main">
+    <a class="ctitle" href={href}>{title}{isNew && <span class="badge-new">NEW</span>}</a>
+    <div class="cdesc">{desc}</div>
+  </div>
+  {!page && (
+    <>
+      <div class="stats"><div class="n">{count}</div><div class="l">Threads</div></div>
+      <div class="stats"><div class="n">{count}</div><div class="l">Messages</div></div>
+      <div class="latest">
+        {latest ? (
+          <>
+            <img class="av" src={`/avatar/${encodeURIComponent(latest.author)}`} data-uprofile={latest.author} alt="" width="40" height="40" loading="lazy" />
+            <div class="lt">
+              <a href={latest.url}>{latest.title}</a>
+              <div class="meta">{latest.date} · {latest.author}</div>
+            </div>
+          </>
+        ) : (
+          <div class="lt"><div class="meta" style="color:var(--muted-2)">no posts yet</div></div>
+        )}
+      </div>
+    </>
+  )}
+</div>
