@@ -1,5 +1,6 @@
 ---
 import Base from '../../layouts/Base.astro';
+import Crumbs from '../../components/Crumbs.astro';
 import { getCollection } from 'astro:content';
 import { CATEGORIES } from '../../content.config';
 import { CATEGORY_LABELS, SITE, STATIC_SITE, avatarUrl, profileAttrs } from '../../config';
@@ -23,9 +24,7 @@ const subs: Record<string, string> = {
 };
 ---
 <Base title={label}>
-  <nav class="crumbs-box" aria-label="Breadcrumb">
-    <a href={href('/')}>⌂ Home</a><span class="sep">›</span><a href={href('/')}>Forums</a><span class="sep">›</span><span class="here">{label}</span>
-  </nav>
+  <Crumbs category={category} current />
   <div class="page-head"><h1>{label}</h1>{subs[category] && <p>{subs[category]}</p>}</div>
 
   <div class="threadlist">

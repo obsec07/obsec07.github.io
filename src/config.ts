@@ -68,6 +68,9 @@ export const ACCOUNT_MENU = [
   { label: 'Ignoring', href: '/account' },
 ];
 
+// anchor of a home-page section (#blogs, #tobi-releases), used by the breadcrumbs
+export const sectionId = (title: string) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
 export const SECTIONS = [
   {
     title: 'Blogs',

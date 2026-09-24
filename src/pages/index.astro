@@ -2,7 +2,7 @@
 import Base from '../layouts/Base.astro';
 import CategoryRow from '../components/CategoryRow.astro';
 import ShareBar from '../components/ShareBar.astro';
-import { SITE, SECTIONS, CATEGORY_LABELS, STATIC_SITE, avatarUrl, profileAttrs } from '../config';
+import { SITE, SECTIONS, CATEGORY_LABELS, STATIC_SITE, avatarUrl, profileAttrs, sectionId } from '../config';
 import { getCollection } from 'astro:content';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -43,9 +43,9 @@ const chevron = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" str
   </div>
 
   <div class="home">
-    <div class="col">
+    <div class="col" id="forums">
       {SECTIONS.map((sec) => (
-        <div class="section">
+        <div class="section" id={sectionId(sec.title)}>
           <div class="section-head" role="button" tabindex="0" aria-label={`collapse ${sec.title}`}>
             <div>
               <h2>{sec.title}</h2>
@@ -108,6 +108,15 @@ const chevron = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" str
         else document.exitFullscreen && document.exitFullscreen();
       });
       // collapsible sections (chevron toggles the rows)
+      // breadcrumb links land on /#forums or /#blogs: make sure that section is open, and flash it so it's easy to spot
+      function openTarget() {
+        var t = location.hash.length > 1 && document.getElementById(decodeURIComponent(location.hash.slice(1)));
+        if (!t) return;
+        if (t.classList.contains('section')) t.classList.remove('collapsed');
+        t.classList.remove('flash'); void t.offsetWidth; t.classList.add('flash');
+      }
+      openTarget();
+      window.addEventListener('hashchange', openTarget);
       document.querySelectorAll('.section-head').forEach(function (h) {
         function toggle() { h.closest('.section').classList.toggle('collapsed'); }
         h.addEventListener('click', toggle);
