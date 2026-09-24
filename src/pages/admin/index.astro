@@ -1,7 +1,11 @@
 ---
-// /admin — username/password admin for the static site. Logging in decrypts the GitHub token sealed in
-// /admin/vault.json (see vault.json.js); posts are then listed, written and deleted through the GitHub API, and every
-// save is a commit to `main`, which redeploys the site. The Node server has its own /login + /admin-panel instead.
+// /admin — post editor for the static site. Two ways in:
+//   - an access token (a GitHub fine-grained token with Contents: read/write on this repo): works with no setup; it
+//     stays in this browser and is only sent to GitHub;
+//   - username + password, if the ADMIN_PASSWORD / ADMIN_TOKEN secrets are set: the password decrypts the token sealed
+//     in /admin/vault.json (see vault.json.js).
+// Posts are then listed, written and deleted through the GitHub API; every save is a commit to `main`, which redeploys
+// the site. The Node server has its own /login + /admin-panel instead.
 import Base from '../../layouts/Base.astro';
 import { STATIC_SITE } from '../../config';
 import { CATEGORIES } from '../../content.config';
@@ -15,12 +19,20 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
   ) : (
     <div id="adm" data-repo={repo} data-vault={`${base}/admin/vault.json`}>
       <section id="adm-login">
-        <form class="acct-form adm-login" id="adm-login-form">
+        <form class="acct-form adm-login" id="adm-token-form">
+          <div class="frow"><div class="lab">Access token</div><div class="fld">
+            <input type="password" name="token" autocomplete="off" spellcheck="false" placeholder="github_pat_…" required />
+            <div class="hint">Your GitHub fine-grained token with <b>Contents: Read and write</b> on this repository. It stays in this browser and is only ever sent to GitHub.</div>
+          </div></div>
+          <div class="frow"><div class="lab"></div><div class="fld"><label class="adm-remember"><input type="checkbox" name="remember" /> Keep me signed in on this device</label></div></div>
+          <div class="acct-actions"><span class="adm-err" id="adm-token-err" role="alert"></span><button class="save-btn" type="submit">Log in</button></div>
+        </form>
+        <div class="adm-or" id="adm-or" hidden><span>or with your password</span></div>
+        <form class="acct-form adm-login" id="adm-login-form" hidden>
           <div class="frow"><div class="lab">Username</div><div class="fld"><input type="text" name="user" autocomplete="username" required /></div></div>
           <div class="frow"><div class="lab">Password</div><div class="fld"><input type="password" name="pass" autocomplete="current-password" required /></div></div>
           <div class="acct-actions"><span class="adm-err" id="adm-login-err" role="alert"></span><button class="save-btn" type="submit">Log in</button></div>
         </form>
-        <div class="acct-empty" id="adm-off" hidden>Admin login isn't set up yet. Add the <b>ADMIN_PASSWORD</b> and <b>ADMIN_TOKEN</b> repository secrets, then re-run <b>Deploy to GitHub Pages</b>.</div>
       </section>
 
       <section id="adm-app" hidden>
@@ -66,9 +78,12 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
     const slugify = (s) => String(s).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80) || 'post';
     let session = null, posts = [], editing = null;
 
+    // signed-in session: this tab only, or this device when "keep me signed in" is ticked
     const store = {
-      get() { try { return JSON.parse(sessionStorage.getItem('adm') || 'null'); } catch { return null; } },
-      set(v) { try { v ? sessionStorage.setItem('adm', JSON.stringify(v)) : sessionStorage.removeItem('adm'); } catch {} },
+      get() { try { return JSON.parse(sessionStorage.getItem('adm') || localStorage.getItem('adm') || 'null'); } catch { return null; } },
+      set(v, remember = false) {
+        try { sessionStorage.removeItem('adm'); localStorage.removeItem('adm'); if (v) (remember ? localStorage : sessionStorage).setItem('adm', JSON.stringify(v)); } catch {}
+      },
     };
     const note = (msg, kind = 'ok') => { const n = $('adm-msg'); n.textContent = msg; n.className = `acct-note ${kind}`; n.hidden = !msg; };
 
@@ -82,9 +97,23 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
       catch { throw new Error('Invalid username or password.'); }
     }
 
+    // access token -> ask GitHub whether it can reach (and write) this repo; show who it belongs to
+    async function tokenLogin(token) {
+      const headers = { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' };
+      const r = await fetch(`https://api.github.com/repos/${REPO}`, { headers, cache: 'no-store' });
+      if (r.status === 401) throw new Error('GitHub says this token is invalid or expired.');
+      if (!r.ok) throw new Error(`This token can't access ${REPO} (GitHub ${r.status}). Give it access to this repository.`);
+      const repo = await r.json();
+      if (repo.permissions && repo.permissions.push === false) throw new Error("This token can read the repo but can't write to it. Give it Contents: Read and write.");
+      let user = 'admin';
+      try { const u = await fetch('https://api.github.com/user', { headers, cache: 'no-store' }); if (u.ok) user = (await u.json()).login || user; } catch {}
+      return { token, user };
+    }
+
     async function gh(path, opts = {}) {
       const r = await fetch(API + path, { ...opts, cache: 'no-store', headers: { Authorization: `Bearer ${session.token}`, Accept: 'application/vnd.github+json', ...(opts.body ? { 'Content-Type': 'application/json' } : {}) } });
-      if (r.status === 401) { logout(); throw new Error('GitHub rejected the saved token (expired or revoked). Update the ADMIN_TOKEN secret and redeploy.'); }
+      if (r.status === 401) { logout(); throw new Error('GitHub rejected the token (expired or revoked). Log in again with a valid token.'); }
+      if (r.status === 403 && opts.method) throw new Error("GitHub refused the change: the token needs Contents: Read and write on this repository.");
       if (r.status === 404 && !opts.method) return null;
       if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(`GitHub error ${r.status}${j.message ? `: ${j.message}` : ''}`); }
       return r.json();
@@ -166,14 +195,17 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
     }
     function logout() { session = null; store.set(null); note(''); closeEditor(); $('adm-app').hidden = true; $('adm-login').hidden = false; }
 
-    $('adm-login-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const f = e.currentTarget, btn = f.querySelector('button'), err = $('adm-login-err');
+    async function login(form, errId, attempt) {
+      const btn = form.querySelector('button[type=submit]'), err = $(errId);
       err.textContent = ''; btn.disabled = true; btn.textContent = 'Checking…';
-      try { session = await unlock(f.elements.user.value.trim(), f.elements.pass.value); store.set(session); f.reset(); await showApp(); }
-      catch (x) { if (x.off) { f.hidden = true; $('adm-off').hidden = false; } else err.textContent = x.message; }
+      try { session = await attempt(form); form.reset(); await showApp(); }
+      catch (x) { err.textContent = x.message; }
       finally { btn.disabled = false; btn.textContent = 'Log in'; }
-    });
+    }
+    $('adm-token-form').addEventListener('submit', (e) => { e.preventDefault(); login(e.currentTarget, 'adm-token-err', async (f) => {
+      const s = await tokenLogin(f.elements.token.value.trim()); store.set(s, f.elements.remember.checked); return s; }); });
+    $('adm-login-form').addEventListener('submit', (e) => { e.preventDefault(); login(e.currentTarget, 'adm-login-err', async (f) => {
+      const s = await unlock(f.elements.user.value.trim(), f.elements.pass.value); store.set(s); return s; }); });
     $('adm-out').addEventListener('click', logout);
     $('adm-new').addEventListener('click', () => { note(''); openEditor(null); });
     $('adm-cancel').addEventListener('click', closeEditor);
@@ -186,6 +218,7 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
 
     session = store.get();
     if (session) showApp();
-    else fetch(VAULT, { cache: 'no-store' }).then((r) => r.json()).then((v) => { if (!v.configured) { $('adm-login-form').hidden = true; $('adm-off').hidden = false; } }).catch(() => {});
+    // the password form only exists when the ADMIN_PASSWORD / ADMIN_TOKEN secrets were set at deploy time
+    fetch(VAULT, { cache: 'no-store' }).then((r) => r.json()).then((v) => { if (v.configured) { $('adm-or').hidden = false; $('adm-login-form').hidden = false; } }).catch(() => {});
   }
 </script>

@@ -7,8 +7,9 @@ export const SITE = {
   role: 'New member',
   email: 't0b1@proton.me',
   socials: {
-    twitter: 'https://twitter.com/your-handle',
-    github: 'https://github.com/your-username',
+    github: 'https://github.com/obsec07',
+    medium: 'https://medium.com/@hirehyati.sardar07',
+    instagram: 'https://instagram.com/_.sardar07',
   },
   banner: '',
 };
