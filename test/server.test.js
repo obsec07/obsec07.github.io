@@ -105,6 +105,14 @@ test('security headers are set and X-Powered-By is gone', async () => {
   assert.match(headers.get('content-security-policy'), /frame-ancestors 'none'/);
 });
 
+test('home page forum statistics are filled from the account database', async () => {
+  await client().register('stats_user');
+  const { text } = await client().req('/');
+  assert.ok(!text.includes('<!--STAT_'), 'stat slots left unfilled');
+  assert.ok(Number(/Members:<\/dt>\s*<dd>(\d+)<\/dd>/.exec(text)?.[1]) >= 2, 'member count missing');
+  assert.match(text, /Latest member:<\/dt>\s*<dd>stats_user<\/dd>/);
+});
+
 test('client-supplied X-Forwarded-For entries are not trusted', async () => {
   // what a proxy forwards when a client sends "X-Forwarded-For: 6.6.6.6": the client's value, then the real address
   const c = client('6.6.6.6, 203.0.113.77');
