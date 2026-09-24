@@ -79,8 +79,22 @@ editing posts. Each save is a commit to `main`, and the site redeploys about 2 m
    **Contents: Read and write**.
 2. Open `/admin`, click **Sign In Using Access Token** and paste the token. It stays in that browser only.
 
-The "Sign In with GitHub" button would need a separate OAuth server, which isn't set up. Users, comments
-and the full admin panel exist only on the Node server (`/admin-panel`).
+**"Sign In with GitHub" (SSO) on `/admin`.** A static site can't hold the OAuth client secret, so GitHub
+login goes through a tiny free relay, [sveltia-cms-auth](https://github.com/sveltia/sveltia-cms-auth) on
+Cloudflare Workers. The button stays hidden until the relay is configured, and token sign-in always works.
+1. Open the sveltia-cms-auth README, click **Deploy to Cloudflare Workers**, and note the Worker URL, e.g.
+   `https://sveltia-cms-auth.<you>.workers.dev`.
+2. GitHub → Settings → Developer settings → **OAuth Apps** → *New OAuth App*:
+   - Homepage URL: `https://obsec07.github.io`
+   - Authorization callback URL: `https://sveltia-cms-auth.<you>.workers.dev/callback`
+   - Then generate a client secret.
+3. In the Worker's Settings → Variables, set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` (encrypted) and
+   `ALLOWED_DOMAINS` = `obsec07.github.io`.
+4. In this repo: Settings → Secrets and variables → Actions → **Variables** → add `CMS_AUTH_URL` = the
+   Worker URL.
+5. Actions → **Deploy to GitHub Pages** → Run workflow.
+
+Users, comments and the full admin panel exist only on the Node server (`/admin-panel`).
 
 **Docker** (Fly.io, Railway, a VPS, …):
 ```bash

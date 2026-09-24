@@ -1,16 +1,19 @@
 // Sveltia CMS config for /admin. Generated at build time so the repo name and URL paths follow the deployment:
 // GitHub Actions sets GITHUB_REPOSITORY (it tracks a repo rename); other builds fall back to this repo.
+// CMS_AUTH_URL is the OAuth relay for "Sign In with GitHub" (a sveltia-cms-auth Cloudflare Worker); without it
+// the CMS would send logins to Netlify's relay, which only works for sites hosted on Netlify.
 // Fields mirror the `posts` schema in src/content.config.ts.
 import { CATEGORIES } from '../../content.config';
 
 export function GET(context) {
   const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-  const repo = process.env.GITHUB_REPOSITORY || 'obsec07/secblog';
+  const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
+  const authUrl = process.env.CMS_AUTH_URL;
   const yml = `backend:
   name: github
   repo: ${repo}
   branch: main
-site_url: ${new URL(import.meta.env.BASE_URL, context.site).href}
+${authUrl ? `  base_url: ${authUrl}\n` : ''}site_url: ${new URL(import.meta.env.BASE_URL, context.site).href}
 media_folder: public/images
 public_folder: ${base}/images
 collections:
