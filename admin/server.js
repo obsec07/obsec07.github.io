@@ -16,11 +16,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
 const DIST = path.join(ROOT, 'dist');
 const POSTS_DIR = path.join(ROOT, 'src', 'content', 'posts');
-const DB_PATH = path.join(__dirname, 'app.db');
+// runtime data (SQLite DB + generated JWT secret). Point DATA_DIR at a persistent disk in production.
+const DATA_DIR = path.resolve(process.env.DATA_DIR || __dirname);
+fs.mkdirSync(DATA_DIR, { recursive: true });
+const DB_PATH = path.join(DATA_DIR, 'app.db');
 const PORT = process.env.PORT || process.env.APP_PORT || 4331;   // hosts inject PORT
+// Reverse proxies in front of the app (Render/Fly/Railway/nginx = 1). req.ip is then the address the LAST trusted proxy saw,
+// which the client can't forge — unlike `true`, which takes the client-supplied left-most X-Forwarded-For entry.
+// Set TRUST_PROXY=0 when the app is exposed directly with no proxy (a list of proxy IPs/subnets also works).
+const TRUST_PROXY = process.env.TRUST_PROXY || '1';
 const CATEGORIES = ['0day', 'ctf', 'infosec', 'tools'];
 // JWT secret: from env, else a persisted random file (gitignored) so restarts keep sessions — never hardcoded.
-const SECRET_FILE = path.join(__dirname, '.secret');
+const SECRET_FILE = path.join(DATA_DIR, '.secret');
 const JWT_SECRET = process.env.JWT_SECRET || (() => {
   try { const s = fs.readFileSync(SECRET_FILE, 'utf8').trim(); if (s) return s; } catch {}
   const s = crypto.randomBytes(32).toString('hex');
@@ -60,7 +67,8 @@ const ABS_MS = 15 * 60e3;      // absolute session lifetime: 15 minutes
 const IDLE_MS = 5 * 60e3;      // inactivity timeout: 5 minutes
 const b64u = (b) => Buffer.from(b).toString('base64url');
 function jwtSign(p) { const now = Date.now(); const login = p.login || now; const h = b64u(JSON.stringify({ alg: 'HS256', typ: 'JWT' })); const pl = b64u(JSON.stringify({ ...p, login, iat: now, exp: Math.min(login + ABS_MS, now + IDLE_MS) })); return `${h}.${pl}.` + crypto.createHmac('sha256', JWT_SECRET).update(h + '.' + pl).digest('base64url'); }
-const setSession = (res, u) => res.cookie('token', jwtSign(u), { httpOnly: true, sameSite: 'lax', maxAge: IDLE_MS });
+// token holds only the account's uid + login time; name/role are re-read from the DB on every request (see session middleware)
+const setSession = (req, res, p) => res.cookie('token', jwtSign({ uid: p.uid, login: p.login }), { httpOnly: true, sameSite: 'lax', secure: req.secure, maxAge: IDLE_MS });
 function jwtVerify(t) { try { const [h, p, s] = String(t).split('.'); const e = crypto.createHmac('sha256', JWT_SECRET).update(h + '.' + p).digest('base64url'); if (!crypto.timingSafeEqual(Buffer.from(s), Buffer.from(e))) return null; const d = JSON.parse(Buffer.from(p, 'base64url').toString()); return d.exp < Date.now() ? null : d; } catch { return null; } }
 function makeCaptcha() { const a = 1 + (Math.random() * 9 | 0), b = 1 + (Math.random() * 9 | 0), exp = Date.now() + 6e5; return { q: `What is ${a} + ${b}?`, token: `${a + b}.${exp}.` + crypto.createHmac('sha256', CAPTCHA_SECRET).update(`${a + b}.${exp}`).digest('base64url') }; }
 function checkCaptcha(ans, tok) { const [s, e, sig] = String(tok || '').split('.'); if (!s || !e || Date.now() > +e) return false; return sig === crypto.createHmac('sha256', CAPTCHA_SECRET).update(`${s}.${e}`).digest('base64url') && String(ans).trim() === s; }
@@ -73,13 +81,16 @@ const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</
 const slugify = (s) => lc(s).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80) || 'post';
 const fmtDate = (d) => { try { return new Date(d).toISOString().slice(0, 10); } catch { return d; } };
 const fmtTs = (t) => new Date(t).toLocaleString('en-GB', { hour12: false });
-const me = (req) => req.cookies.token ? jwtVerify(req.cookies.token) : null;
+const me = (req) => req.auth || null;   // set by the session middleware from the DB, never from the request body
 const back = (req, res, hash = '') => res.redirect((req.get('referer') || '/') + hash);
 // password field with a Show/Hide toggle (inline handler so it works in both admin pages and the public shell)
 const PW = (name, attrs = '') => `<span class="pw-wrap"><input type="password" name="${name}" ${attrs}><button type="button" class="pw-eye" tabindex="-1" aria-label="show password" onclick="var i=this.parentNode.querySelector('input');var s=i.type==='password';i.type=s?'text':'password';this.textContent=s?'Hide':'Show';">Show</button></span>`;
 function listPosts() { if (!fs.existsSync(POSTS_DIR)) return []; return fs.readdirSync(POSTS_DIR).filter((f) => f.endsWith('.md')).map((f) => { const g = matter(fs.readFileSync(path.join(POSTS_DIR, f), 'utf8')); return { slug: f.replace(/\.md$/, ''), ...g.data }; }).sort((a, b) => new Date(b.date) - new Date(a.date)); }
 function readPost(s) { const p = path.join(POSTS_DIR, path.basename(s) + '.md'); if (!fs.existsSync(p)) return null; const g = matter(fs.readFileSync(p, 'utf8')); return { slug: s, data: g.data, body: g.content }; }
-function writePost(o) { const data = { title: o.title || 'Untitled', date: o.date || new Date().toISOString().slice(0, 10), category: CATEGORIES.includes(o.category) ? o.category : 'infosec', description: o.description || '', tags: (Array.isArray(o.tags) ? o.tags : String(o.tags || '').split(',')).map((t) => t.trim()).filter(Boolean), draft: !!o.draft }; const s = o.slug || slugify(o.title); fs.mkdirSync(POSTS_DIR, { recursive: true }); fs.writeFileSync(path.join(POSTS_DIR, path.basename(s) + '.md'), matter.stringify(o.body || '', data)); return s; }
+// a NEW post (no slug given) never replaces an existing file: "my-post" -> "my-post-2", "my-post-3", …
+function freeSlug(s) { let slug = s, i = 2; while (fs.existsSync(path.join(POSTS_DIR, slug + '.md'))) slug = `${s}-${i++}`; return slug; }
+function writePost(o) { const data = { title: o.title || 'Untitled', date: o.date || new Date().toISOString().slice(0, 10), category: CATEGORIES.includes(o.category) ? o.category : 'infosec', description: o.description || '', tags: (Array.isArray(o.tags) ? o.tags : String(o.tags || '').split(',')).map((t) => t.trim()).filter(Boolean), draft: !!o.draft }; const s = o.slug || freeSlug(slugify(o.title)); fs.mkdirSync(POSTS_DIR, { recursive: true }); fs.writeFileSync(path.join(POSTS_DIR, path.basename(s) + '.md'), matter.stringify(o.body || '', data)); return s; }
+const livePost = (slug) => { const p = readPost(slug); return p && !p.data.draft ? p : null; };   // published posts only
 // the public site is statically built — after any content change, rebuild dist/ so the new/edited post page exists (debounced, non-blocking)
 let building = false, rebuildQueued = false;
 function rebuild() {
@@ -107,10 +118,10 @@ const fullUser = (name) => db.prepare('SELECT * FROM users WHERE username_lc=?')
 const CTRL = /[\x00-\x1f\x7f]/;                 // control chars / null bytes
 const OWNER = 'tobi';                                 // brand handle -> maps to the admin account for avatars
 const RESERVED = new Set(['admin', 'administrator', 'root', 'superuser', 'moderator', 'mod', 'system', 'support', 'staff', 'owner', OWNER, ADMIN.username.toLowerCase()]);
-function validUsername(u) {
+function validUsername(u, { allowReserved = false } = {}) {   // admins may hand out reserved names; the charset rule always applies
   u = String(u == null ? '' : u).trim();
   if (!/^[a-zA-Z0-9_.-]{3,32}$/.test(u)) return 'Username must be 3–32 characters: letters, numbers, and . _ - only.';
-  if (RESERVED.has(u.toLowerCase())) return 'That username is reserved.';
+  if (!allowReserved && RESERVED.has(u.toLowerCase())) return 'That username is reserved.';
   return null;
 }
 function validEmail(e) {
@@ -128,40 +139,57 @@ function validPassword(p) {
 }
 const ownerName = (name) => { const n = lc(name); return (n === OWNER || n === ADMIN.username.toLowerCase()) ? ADMIN.username : name; };
 
-// ---- rate limiting + abuse blocking (keyed by BOTH source IP and User-Agent, so a proxy/UA switch still trips) ----
-const buckets = new Map();   // "name|key" -> [timestamps]
-const blocked = new Map();   // "ip:x" / "ua:y" -> unblock-at ts
+// ---- rate limiting + abuse blocking (keyed by client IP) ----
+// Deliberately NOT keyed by User-Agent: it's client-chosen and shared by everyone on the same browser build, so one
+// abuser sending a common Chrome UA would lock every Chrome user out of login/comments.
+const buckets = new Map();   // "name|ip" -> [timestamps]
+const blocked = new Map();   // ip -> unblock-at ts
 const overLimit = (k, max, win) => { const now = Date.now(); const a = (buckets.get(k) || []).filter((t) => now - t < win); a.push(now); buckets.set(k, a); return a.length > max; };
 function guard(name, max, win, blockMs) {
   return (req, res, next) => {
-    const ip = req.ip || 'x';
-    const ua = (req.get('user-agent') || '-').slice(0, 200);
-    const ipK = 'ip:' + ip, uaK = 'ua:' + ua, now = Date.now();
-    for (const k of [ipK, uaK]) { const e = blocked.get(k); if (e) { if (now < e) return res.status(429).type('html').send(pageMsg('Temporarily blocked', 'Too many requests. Your address and browser are blocked for a few minutes.')); blocked.delete(k); } }
-    if (overLimit(name + '|' + ip, max, win) || overLimit(name + '|' + ua, max, win)) {
-      blocked.set(ipK, now + blockMs); blocked.set(uaK, now + blockMs);   // block BOTH the IP and the UA
-      log((me(req) || {}).sub || 'anon', 'ratelimit-block:' + name, 'ua=' + ua.slice(0, 60), ip);
-      return res.status(429).type('html').send(pageMsg('Temporarily blocked', 'Too many requests. Your address and browser are blocked for a few minutes.'));
+    const ip = req.ip || 'x', now = Date.now();
+    if (blocked.get(ip) > now) return res.status(429).type('html').send(pageMsg('Temporarily blocked', 'Too many requests. Your address is blocked for a few minutes.'));
+    if (overLimit(name + '|' + ip, max, win)) {
+      blocked.set(ip, now + blockMs);
+      log((me(req) || {}).sub || 'anon', 'ratelimit-block:' + name, 'ua=' + (req.get('user-agent') || '-').slice(0, 60), ip);
+      return res.status(429).type('html').send(pageMsg('Temporarily blocked', 'Too many requests. Your address is blocked for a few minutes.'));
     }
     next();
   };
 }
+// forget expired entries so the maps don't grow forever (every rate window is <= 60s)
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, t] of blocked) if (t <= now) blocked.delete(k);
+  for (const m of [buckets, hits]) for (const [k, a] of m) if (!a.length || now - a[a.length - 1] > 60e3) m.delete(k);
+}, 60e3).unref();
 const guardAuth = guard('auth', 12, 60e3, 10 * 60e3);   // 12 auth attempts/min -> 10-min block
 const guardLike = guard('like', 20, 60e3, 5 * 60e3);    // 20 likes/min       -> 5-min block
 const guardComment = guard('comment', 10, 60e3, 5 * 60e3);
 
 // ---- app ----
 const app = express();
-app.set('trust proxy', true);
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json({ limit: '4mb' }));
+app.set('trust proxy', /^\d+$/.test(TRUST_PROXY) ? +TRUST_PROXY : TRUST_PROXY);
+app.disable('x-powered-by');
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));   // room for long writeups from the post editor (default is 100kb)
 app.use(cookieParser());
-// dynamic, per-session pages must not be served stale from the bfcache (back/forward). Static assets (with a file extension) keep normal caching.
-app.use((req, res, next) => { if (!/\.[a-z0-9]+$/i.test(req.path)) res.set('Cache-Control', 'no-store, must-revalidate'); next(); });
-// sliding session: slide the 5-min idle window on every request, hard-cap at 15 min absolute
 app.use((req, res, next) => {
-  const t = req.cookies.token;
-  if (t) { const p = jwtVerify(t); if (p && Date.now() < (p.login || 0) + ABS_MS) setSession(res, { sub: p.sub, role: p.role, email: p.email, login: p.login }); else res.clearCookie('token'); }
+  // no framing (clickjacking on the admin panel), no MIME sniffing, no <base>/<object> injection, forms only post back here
+  res.set({ 'X-Content-Type-Options': 'nosniff', 'X-Frame-Options': 'DENY', 'Referrer-Policy': 'strict-origin-when-cross-origin', 'Content-Security-Policy': "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'" });
+  if (req.secure) res.set('Strict-Transport-Security', 'max-age=15552000');
+  // dynamic, per-session pages must not be served stale from the bfcache (back/forward). Static assets (with a file extension) keep normal caching.
+  if (!/\.[a-z0-9]+$/i.test(req.path)) res.set('Cache-Control', 'no-store, must-revalidate');
+  next();
+});
+// sliding session: re-load the account on every request so suspension, deletion and role changes take effect immediately
+// (not when the token happens to expire), then slide the 5-min idle window, hard-capped at 15 min absolute
+app.use((req, res, next) => {
+  const t = req.cookies.token; if (!t) return next();
+  const p = jwtVerify(t);
+  const u = p && p.uid && Date.now() < (p.login || 0) + ABS_MS ? userByUid(p.uid) : null;
+  if (!u || u.suspended) { res.clearCookie('token'); return next(); }
+  req.auth = { uid: u.uid, sub: u.username, role: u.role, email: u.email_lc, login: p.login };
+  setSession(req, res, req.auth);
   next();
 });
 const needUser = (req, res, next) => { const u = me(req); if (!u) return res.redirect('/login'); req.u = u; next(); };
@@ -182,7 +210,7 @@ app.post('/api/login', guardAuth, rateLimit, (req, res) => {
   if (u.suspended) return fail(res, 'Your account has been suspended.');
   // NOTE: approval no longer gates login — any active account can sign in and use its profile.
   //       `approved` only controls whether the user may publish posts (checked at the post routes).
-  setSession(res, { sub: u.username, role: u.role, email: u.email_lc, login: Date.now() });
+  setSession(req, res, { uid: u.uid, login: Date.now() });
   log(u.username, 'login', '', req.ip); res.redirect('/');   // never auto-redirect to the panel
 });
 app.post('/api/register', guardAuth, rateLimit, (req, res) => {
@@ -195,11 +223,12 @@ app.post('/api/register', guardAuth, rateLimit, (req, res) => {
   if ((e = validPassword(password))) return fail(res, e, 'register');
   if (db.prepare('SELECT id FROM users WHERE username_lc=?').get(lc(username))) return fail(res, 'That username is already taken.', 'register');
   if (db.prepare('SELECT id FROM users WHERE email_lc=?').get(lc(email))) return fail(res, 'That email is already registered.', 'register');
+  const uid = newUid();
   db.prepare('INSERT INTO users (uid,username,username_lc,email,email_lc,pass_hash,role,approved,suspended,created) VALUES (?,?,?,?,?,?,?,0,0,?)')
-    .run(newUid(), String(username).trim(), lc(username), String(email).trim(), lc(email), bcrypt.hashSync(password, 10), 'user', Date.now());
+    .run(uid, String(username).trim(), lc(username), String(email).trim(), lc(email), bcrypt.hashSync(password, 10), 'user', Date.now());
   log(String(username).trim(), 'register', lc(email), req.ip);
   // account is usable immediately: sign them in and drop them on their profile. Posting stays gated on approval.
-  setSession(res, { sub: String(username).trim(), role: 'user', email: lc(email), login: Date.now() });
+  setSession(req, res, { uid, login: Date.now() });
   res.redirect('/account?welcome=1');
 });
 app.post('/logout', (req, res) => { const u = me(req); if (u) log(u.sub, 'logout', '', req.ip); res.clearCookie('token').redirect('/'); });
@@ -316,7 +345,7 @@ app.post('/account/remove-avatar', needUser, (req, res) => { db.prepare('UPDATE 
 app.post('/account/password', needUser, (req, res) => {
   const u = fullUser(req.u.sub);
   if (!u || !bcrypt.compareSync(String(req.body.current || ''), u.pass_hash)) return res.redirect('/account?tab=security&err=current');
-  if (String(req.body.pw || '').length < 8) return res.redirect('/account?tab=security&err=short');
+  if (validPassword(req.body.pw)) return res.redirect('/account?tab=security&err=pw');   // same rules as registration (login rejects >200 chars)
   if (req.body.pw !== req.body.pw2) return res.redirect('/account?tab=security&err=match');
   db.prepare('UPDATE users SET pass_hash=? WHERE id=?').run(bcrypt.hashSync(req.body.pw, 10), u.id);
   log(req.u.sub, 'password-change', '', req.ip); res.redirect('/account?tab=security&ok=1');
@@ -336,13 +365,14 @@ app.post('/account/write', needUser, (req, res) => {
 
 // ---- comments + likes: form POST, server-rendered (no client fetch) ----
 app.post('/posts/:slug/like', guardLike, needUser, (req, res) => {
-  const post = path.basename(req.params.slug);
+  const post = path.basename(req.params.slug); if (!livePost(post)) return notFound(res);
   if (db.prepare('SELECT 1 FROM likes WHERE post=? AND username=?').get(post, req.u.sub)) db.prepare('DELETE FROM likes WHERE post=? AND username=?').run(post, req.u.sub);
   else db.prepare('INSERT OR IGNORE INTO likes (post,username,ts) VALUES (?,?,?)').run(post, req.u.sub, Date.now());
   res.redirect('/posts/' + post + '#comments');
 });
 app.post('/posts/:slug/comment', guardComment, needUser, (req, res) => {
   const post = path.basename(req.params.slug), body = String(req.body.body || '').trim();
+  if (!livePost(post)) return notFound(res);   // no comments on drafts or on slugs that don't exist
   if (body) { db.prepare('INSERT INTO comments (post,username,body,ts) VALUES (?,?,?,?)').run(post, req.u.sub, body.slice(0, 4000), Date.now()); log(req.u.sub, 'comment', post, req.ip); }
   res.redirect('/posts/' + post + '#comments');
 });
@@ -363,7 +393,9 @@ app.post('/admin-panel/delete-user/:uid', needAdmin, (req, res) => { const u = u
 app.post('/admin-panel/add-user', needAdmin, (req, res) => {
   const { username, email, password, role } = req.body;
   if (!username || !email || !password) return res.redirect('/admin-panel?msg=add_fields');
-  if (String(password).length < 8) return res.redirect('/admin-panel?msg=add_pw');
+  if (validUsername(username, { allowReserved: true })) return res.redirect('/admin-panel?msg=add_user');
+  if (validEmail(email)) return res.redirect('/admin-panel?msg=add_email');
+  if (validPassword(password)) return res.redirect('/admin-panel?msg=add_pw');
   if (db.prepare('SELECT id FROM users WHERE username_lc=?').get(lc(username))) return res.redirect('/admin-panel?msg=add_dupuser');
   if (db.prepare('SELECT id FROM users WHERE email_lc=?').get(lc(email))) return res.redirect('/admin-panel?msg=add_dupemail');
   db.prepare('INSERT INTO users (uid,username,username_lc,email,email_lc,pass_hash,role,approved,suspended,created) VALUES (?,?,?,?,?,?,?,1,0,?)')
@@ -391,16 +423,18 @@ app.post('/admin-panel/save-post', needAdmin, (req, res) => { const slug = write
 app.get('/admin-panel/edit-user/:uid', needAdmin, (req, res) => { const u = userByUid(req.params.uid); if (!u) return res.redirect('/admin-panel'); res.type('html').send(pageEditUser(u, '', req.u.sub)); });
 app.post('/admin-panel/save-user/:uid', needAdmin, (req, res) => {
   const u = userByUid(req.params.uid); if (!u) return res.redirect('/admin-panel');
-  const self = lc(u.username) === lc(req.u.sub);   // "am I editing my own account?" — decided from the JWT, not the body
+  const self = lc(u.username) === lc(req.u.sub);   // "am I editing my own account?" — decided from the session, not the body
   const primary = isAdminName(u.username);          // the seed admin identity
   const { username, email, password, role } = req.body;
+  const bad = (username && !primary && validUsername(username, { allowReserved: true })) || (email && validEmail(email)) || (password && validPassword(password));
+  if (bad) return res.type('html').send(pageEditUser(u, bad, req.u.sub));
   // username: editable for other users only; the primary admin username is fixed (it's the seed identity)
   if (username && !primary && lc(username) !== u.username_lc && db.prepare('SELECT id FROM users WHERE username_lc=?').get(lc(username))) return res.type('html').send(pageEditUser(u, 'That username is already taken.', req.u.sub));
   if (email && lc(email) !== u.email_lc && db.prepare('SELECT id FROM users WHERE email_lc=?').get(lc(email))) return res.type('html').send(pageEditUser(u, 'That email is already registered.', req.u.sub));
   if (username && !primary) db.prepare('UPDATE users SET username=?, username_lc=? WHERE id=?').run(String(username).trim(), lc(username), u.id);
   if (email) db.prepare('UPDATE users SET email=?, email_lc=? WHERE id=?').run(String(email).trim(), lc(email), u.id);
-  if (password && String(password).length >= 8) db.prepare('UPDATE users SET pass_hash=? WHERE id=?').run(bcrypt.hashSync(password, 10), u.id);
-  // ROLE is authority — never take it from the client for your own record or the primary admin. Your privilege stays whatever your token says.
+  if (password) db.prepare('UPDATE users SET pass_hash=? WHERE id=?').run(bcrypt.hashSync(password, 10), u.id);
+  // ROLE is authority — never take it from the client for your own record or the primary admin. Your privilege stays whatever the DB already says.
   if (role && ['user', 'moderator', 'admin'].includes(role) && !primary && !self) db.prepare('UPDATE users SET role=? WHERE id=?').run(role, u.id);
   // admin-editable stat overrides (blank -> revert to auto)
   const numOrNull = (v) => (v === undefined || String(v).trim() === '' ? null : (Number.isFinite(+v) ? Math.max(0, Math.trunc(+v)) : null));
@@ -413,25 +447,38 @@ app.get('/members/:name', (req, res) => {
   const target = fullUser(ownerName(req.params.name)); if (!target) return notFound(res);
   const shell = path.join(DIST, 'members', 'index.html'); if (!fs.existsSync(shell)) return notFound(res);
   const u = me(req);
-  const html = fs.readFileSync(shell, 'utf8')
-    .replace('<!--ICONS_SLOT-->', headerIcons(u)).replace('<!--MEMBERS_SLOT-->', newestMembers()).replace('<!--UPROFILE-->', uprofileCards())
-    .replace('<!--MEMBER_SLOT-->', memberProfile(target));
+  const html = fill(fs.readFileSync(shell, 'utf8'), { ICONS_SLOT: headerIcons(u), MEMBERS_SLOT: newestMembers(), UPROFILE: uprofileCards(), MEMBER_SLOT: memberProfile(target) });
   res.type('html').send(html);
 });
 
 // ---- serve static HTML with server-side injection (admin link on every page; comments on posts) ----
-function htmlFile(p) { p = decodeURIComponent(p.split('?')[0]); let f = path.join(DIST, p); try { if (fs.statSync(f).isFile() && f.endsWith('.html')) return f; } catch {} f = path.join(DIST, p, 'index.html'); return fs.existsSync(f) ? f : null; }
+// Slot values go in via a replacer FUNCTION: with a plain string, `$&` / "$`" / "$'" inside a comment would be expanded
+// by String.replace and splice copies of the page's own HTML into the output.
+const fill = (html, slots) => Object.entries(slots).reduce((h, [k, v]) => h.replace(`<!--${k}-->`, () => v), html);
+function htmlFile(p) {
+  try { p = decodeURIComponent(p.split('?')[0]); } catch { return null; }   // malformed %-escapes
+  let f = path.join(DIST, p);
+  if (f !== DIST && !f.startsWith(DIST + path.sep)) return null;             // "..%2f" must never climb out of dist/
+  try { if (fs.statSync(f).isFile() && f.endsWith('.html')) return f; } catch {}
+  f = path.join(f, 'index.html'); return fs.existsSync(f) ? f : null;
+}
 app.get('*', (req, res, next) => {
   const f = htmlFile(req.path); if (!f) return next();
   const u = me(req);
-  let html = fs.readFileSync(f, 'utf8').replace('<!--ICONS_SLOT-->', headerIcons(u)).replace('<!--MEMBERS_SLOT-->', newestMembers()).replace('<!--UPROFILE-->', uprofileCards());
-  if (html.includes('<!--THSTATS:')) html = html.replace(/<!--THSTATS:([^]*?)-->/g, (m, slug) => threadStats(slug)).replace('<!--POSTHERE-->', postHere(u));
-  if (req.path === '/account' || req.path === '/account/') html = html.replace('<!--ACCOUNT_SLOT-->', u ? accountPanel(fullUser(u.sub), req.query.tab, req.query) : accountAnon());
-  if (req.path.startsWith('/posts/')) { const slug = path.basename(req.path.replace(/\/+$/, '')); html = html.replace('<!--COMMENTS_SLOT-->', renderComments(slug, u)).replace('<!--AUTHORCARD-->', authorCard(slug)); }
+  let html = fill(fs.readFileSync(f, 'utf8'), { ICONS_SLOT: headerIcons(u), MEMBERS_SLOT: newestMembers(), UPROFILE: uprofileCards() });
+  if (html.includes('<!--THSTATS:')) html = fill(html.replace(/<!--THSTATS:([^]*?)-->/g, (m, slug) => threadStats(slug)), { POSTHERE: postHere(u) });
+  if (req.path === '/account' || req.path === '/account/') html = fill(html, { ACCOUNT_SLOT: u ? accountPanel(fullUser(u.sub), req.query.tab, req.query) : accountAnon() });
+  if (req.path.startsWith('/posts/')) { const slug = path.basename(req.path.replace(/\/+$/, '')); html = fill(html, { COMMENTS_SLOT: renderComments(slug, u), AUTHORCARD: authorCard(slug) }); }
   res.type('html').send(html);
 });
 app.use(express.static(DIST));
 app.use((req, res) => notFound(res));
+// never show stack traces: malformed requests (bad %-escapes, oversized bodies) get their 4xx, anything else is logged + generic 500
+app.use((err, req, res, next) => {
+  const status = err.status || err.statusCode || (err instanceof URIError ? 400 : 500);
+  if (status >= 500) console.error(err);
+  res.status(status).type('html').send(pageError(status, status >= 500 ? 'Something went wrong on our side.' : 'That request could not be processed.'));
+});
 app.listen(PORT, () => console.log(`\n  blog + auth + admin  ->  http://localhost:${PORT}\n  login: /login  ·  admin panel: /admin-panel  (admin: ${ADMIN.username})\n`));
 const fail = (res, msg, mode = 'login') => res.type('html').send(pageAuth(mode, makeCaptcha(), msg));
 const notFound = (res) => res.status(404).type('html').send(pageNotFound());
@@ -462,7 +509,7 @@ function renderComments(slug, user) {
     : `<a class="like-btn" href="/login">${heart} Like</a>`;
   const list = comments.map((c) => {
     const canDel = user && (isAdmin || user.sub === c.username);
-    return `<li class="cmt-item"><div class="meta"><span class="who${c.username === 't0b!' ? ' admin' : ''}">${esc(c.username)}</span><span>${fmtTs(c.ts)}</span>
+    return `<li class="cmt-item"><div class="meta"><span class="who${isAdminName(c.username) ? ' admin' : ''}">${esc(c.username)}</span><span>${fmtTs(c.ts)}</span>
       ${canDel ? `<form method="post" action="/posts/${esc(slug)}/comment/${c.id}/delete" onsubmit="return confirm('Delete comment?')"><button class="cmt-del" type="submit">delete</button></form>` : ''}
     </div><div class="body">${esc(c.body)}</div></li>`;
   }).join('');
@@ -537,7 +584,8 @@ const statusPill = (u) => u.suspended ? '<span class="pill susp">suspended</span
 const F = (action, label, cls = 'ghost', confirm = '') => `<form class="inline" method="post" action="${action}"${confirm ? ` onsubmit="return confirm('${confirm}')"` : ''}><button class="btn ${cls}" type="submit">${label}</button></form>`;
 const ADMIN_MSG = {
   add_ok: ['ok', 'User created.'], add_fields: ['err', 'Add user: username, email and password are all required.'],
-  add_pw: ['err', 'Add user: password must be at least 8 characters.'], add_dupuser: ['err', 'Add user: that username is already taken.'],
+  add_pw: ['err', 'Add user: password must be 8–200 characters.'], add_dupuser: ['err', 'Add user: that username is already taken.'],
+  add_user: ['err', 'Add user: username must be 3–32 characters: letters, numbers, and . _ - only.'], add_email: ['err', 'Add user: enter a valid email address.'],
   add_dupemail: ['err', 'Add user: that email is already registered.'], save_ok: ['ok', 'User updated.'],
   post_saved: ['ok', 'Post saved. The site is rebuilding — your post will appear in a few seconds.'],
 };
@@ -623,14 +671,15 @@ function pageEditUser(u, err = '', actorSub = '') {
     <div class="bar"><a class="btn ghost" href="/admin-panel">Cancel</a><button class="btn pink" type="submit">Save changes</button></div>
   </form></div>` + FOOT;
 }
-function pageNotFound() {
-  return HEAD('Not found') + `<div class="wrap"><div class="card auth" style="text-align:center"><h1>404</h1><p class="muted">The page you requested could not be found.</p><a class="btn ghost" href="/">Back to forums</a></div></div>` + FOOT;
+function pageError(code, msg) {
+  return HEAD(code === 404 ? 'Not found' : 'Error') + `<div class="wrap"><div class="card auth" style="text-align:center"><h1>${code}</h1><p class="muted">${msg}</p><a class="btn ghost" href="/">Back to forums</a></div></div>` + FOOT;
 }
+const pageNotFound = () => pageError(404, 'The page you requested could not be found.');
 
 // ---- account area (rendered into the public site shell via ACCOUNT_SLOT; uses the public stylesheet) ----
 const A_NOTE = {
   ok: { '1': 'Your changes have been saved.', photo: 'Profile photo updated.', submitted: 'Your post was submitted and is awaiting an administrator to publish it.', published: 'Your post is now live.' },
-  err: { type: 'That file is not a valid JPEG or PNG image.', size: 'That image is too large — 2 MB maximum.', none: 'No file was selected.', current: 'Your current password is incorrect.', short: 'New password must be at least 8 characters.', match: 'The new passwords do not match.', title: 'A title is required.' },
+  err: { type: 'That file is not a valid JPEG or PNG image.', size: 'That image is too large — 2 MB maximum.', none: 'No file was selected.', current: 'Your current password is incorrect.', pw: 'New password must be 8–200 characters with no control characters.', match: 'The new passwords do not match.', title: 'A title is required.' },
 };
 function accountNote(q = {}) {
   if (q.welcome) return `<div class="acct-note ok">Welcome — your account is ready. Add a photo and details below. Posting is enabled once an administrator approves you.</div>`;
@@ -692,7 +741,7 @@ function accountPanel(u, tab, q = {}) {
     panel = `
     <form class="acct-form" method="post" action="/account/password">
       <div class="frow"><div class="lab">Current password</div><div class="fld">${PW('current', 'autocomplete="current-password" required')}</div></div>
-      <div class="frow"><div class="lab">New password</div><div class="fld">${PW('pw', 'autocomplete="new-password" required')}<div class="hint">At least 8 characters.</div></div></div>
+      <div class="frow"><div class="lab">New password</div><div class="fld">${PW('pw', 'autocomplete="new-password" required')}<div class="hint">8–200 characters.</div></div></div>
       <div class="frow"><div class="lab">Confirm password</div><div class="fld">${PW('pw2', 'autocomplete="new-password" required')}</div></div>
       <div class="acct-actions"><button class="save-btn" type="submit">Change password</button></div>
     </form>`;

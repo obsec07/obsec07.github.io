@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=22.13.0"
   },
   "scripts": {
     "dev": "astro dev --host",
@@ -13,7 +13,8 @@
     "admin": "node admin/server.js",
     "admin:reset": "node admin/server.js --reset",
     "serve": "node admin/server.js",
-    "start": "npm run build && node admin/server.js"
+    "start": "npm run build && node admin/server.js",
+    "test": "astro build && node --test test/*.test.js"
   },
   "dependencies": {
     "@astrojs/rss": "^4.0.11",
