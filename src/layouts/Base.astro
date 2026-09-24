@@ -54,6 +54,26 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
           if (ok) ok.addEventListener('click', function () { localStorage.setItem('cookie-ok', '1'); document.getElementById('cookie').style.display = 'none'; });
         } catch (e) {}
       })();
+      // dropdown menus: hover opens them with a mouse; a tap or click opens them too (phones have no hover, and
+      // Safari doesn't focus a clicked button). On a phone the first tap on "Forums ▾" opens its menu, the second follows the link.
+      (function () {
+        var items = [].slice.call(document.querySelectorAll('.nav-item')).filter(function (n) { return n.querySelector('.dropdown'); });
+        function close(n) { n.classList.remove('open'); var t = n.firstElementChild; if (t) t.setAttribute('aria-expanded', 'false'); }
+        items.forEach(function (n) {
+          var t = n.firstElementChild; if (!t) return;
+          t.setAttribute('aria-expanded', 'false');
+          t.addEventListener('click', function (e) {
+            var isButton = t.tagName === 'BUTTON', touch = matchMedia('(hover: none)').matches;
+            if (!isButton && !(touch && !n.classList.contains('open'))) return;   // mouse, or 2nd tap: follow the link
+            e.preventDefault();
+            var open = !n.classList.contains('open');
+            items.forEach(close);
+            if (open) { n.classList.add('open'); t.setAttribute('aria-expanded', 'true'); } else t.blur();
+          });
+        });
+        document.addEventListener('click', function (e) { items.forEach(function (n) { if (!n.contains(e.target)) close(n); }); });
+        document.addEventListener('keydown', function (e) { if (e.key === 'Escape') items.forEach(close); });
+      })();
       // hover profile card (XenForo-style): shows after a short hover (so sweeping the mouse across the page doesn't
       // flash cards), hides as soon as the mouse leaves (brief grace to move onto the card); click opens the profile
       (function () {
@@ -78,16 +98,21 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
           card.addEventListener('mouseenter', function () { clearTimeout(hideT); });
           card.addEventListener('mouseleave', scheduleHide);
         });
+        var pending = null;   // the avatar a card is about to open for
         document.querySelectorAll('[data-uprofile]').forEach(function (el) {
           var key = (el.getAttribute('data-uprofile') || '').toLowerCase();
-          el.addEventListener('mouseenter', function () {
-            clearTimeout(hideT); clearTimeout(showT);
+          function schedule() {
+            clearTimeout(hideT); clearTimeout(showT); pending = el;
             showT = setTimeout(function () {
+              pending = null;
               var card = host.querySelector('.uprofile[data-user="' + key + '"]');
               if (card) { hideAll(); place(card, el); }
             }, SHOW_MS);
-          });
-          el.addEventListener('mouseleave', function () { clearTimeout(showT); scheduleHide(); });
+          }
+          el.addEventListener('mouseenter', schedule);
+          // the pointer can already be resting on the avatar (e.g. a scroll closed the card): any small move reopens it
+          el.addEventListener('mousemove', function () { if (pending !== el && !host.querySelector('.uprofile.show')) schedule(); });
+          el.addEventListener('mouseleave', function () { clearTimeout(showT); pending = null; scheduleHide(); });
           el.style.cursor = 'pointer';
           el.addEventListener('click', function () {
             var card = host.querySelector('.uprofile[data-user="' + key + '"]');
@@ -95,7 +120,7 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
           });
         });
         // never leave a card hanging: scrolling, switching windows or Esc close it at once
-        function hideNow() { clearTimeout(showT); clearTimeout(hideT); hideAll(); }
+        function hideNow() { clearTimeout(showT); clearTimeout(hideT); pending = null; hideAll(); }
         window.addEventListener('scroll', hideNow, { passive: true });
         window.addEventListener('blur', hideNow);
         document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hideNow(); });

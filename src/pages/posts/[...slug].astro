@@ -1,5 +1,6 @@
 ---
 import Base from '../../layouts/Base.astro';
+import ShareBar from '../../components/ShareBar.astro';
 import { getCollection, render } from 'astro:content';
 import { CATEGORY_LABELS, SITE, STATIC_SITE, OWNER_PROFILE, avatarUrl, profileAttrs, profileUrl } from '../../config';
 import { ownerStats } from '../../lib/owner';
@@ -15,6 +16,7 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const href = (p: string) => (base + p).replace(/\/{2,}/g, '/') || '/';
 const label = CATEGORY_LABELS[post.data.category] ?? post.data.category;
 const catHref = href('/' + post.data.category);
+const postUrl = new URL(href('/posts/' + post.id), Astro.site).href;
 const d = post.data.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 ---
 <Base title={post.data.title} description={post.data.description}>
@@ -44,10 +46,16 @@ const d = post.data.date.toLocaleDateString('en-US', { month: 'short', day: 'num
     <div class="message">
       <div class="message-top">
         <span class="msg-date"><span class="live-dot"></span>{d}</span>
-        <button class="msg-share" type="button" aria-label="Share"
-          onclick="if(navigator.share){navigator.share({url:location.href})}else if(navigator.clipboard){navigator.clipboard.writeText(location.href)}">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg>
-        </button>
+        <div class="share-menu">
+          <button class="msg-share" type="button" title="Share" aria-label="Share" aria-haspopup="true" aria-expanded="false">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/></svg>
+          </button>
+          <div class="share-pop" hidden>
+            <div class="share-pop-title">Share this post</div>
+            <ShareBar url={postUrl} title={post.data.title} />
+            <button class="share-native" type="button" data-url={postUrl} hidden>More options…</button>
+          </div>
+        </div>
       </div>
       <div class="prose">
         {post.data.tags && post.data.tags.length > 0 && (
@@ -56,6 +64,7 @@ const d = post.data.date.toLocaleDateString('en-US', { month: 'short', day: 'num
         <Content />
       </div>
     </div>
+    <div class="thread-share"><ShareBar url={postUrl} title={post.data.title} label="Share:" /></div>
     <div class="author-card">
       {owner ? (
         <div class="ac-inner">
@@ -67,6 +76,23 @@ const d = post.data.date.toLocaleDateString('en-US', { month: 'short', day: 'num
       ) : <Fragment set:html={'<!--AUTHORCARD-->'} />}
     </div>
   </article>
+
+  <script is:inline>
+    // share icon on the post: a small menu with the share links (+ the system share sheet where there is one)
+    (function () {
+      var m = document.querySelector('.share-menu'); if (!m) return;
+      var btn = m.querySelector('.msg-share'), pop = m.querySelector('.share-pop'), more = m.querySelector('.share-native');
+      function set(open) { pop.hidden = !open; btn.setAttribute('aria-expanded', String(open)); }
+      btn.addEventListener('click', function () { set(pop.hidden); });
+      pop.addEventListener('click', function (e) { if (e.target.closest('a, button')) setTimeout(function () { set(false); }, 0); });
+      document.addEventListener('click', function (e) { if (!m.contains(e.target)) set(false); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !pop.hidden) { set(false); btn.focus(); } });
+      if (navigator.share) {
+        more.hidden = false;
+        more.addEventListener('click', function () { navigator.share({ title: document.title, url: more.getAttribute('data-url') }).catch(function () {}); });
+      }
+    })();
+  </script>
 
   {!STATIC_SITE && <section class="comments"><Fragment set:html={'<!--COMMENTS_SLOT-->'} /></section>}
 </Base>
