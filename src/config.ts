@@ -5,7 +5,7 @@ export const SITE = {
   description: 'Vulnerability research, CTF writeups, infosec notes and tool releases.',
   author: 'tobi',
   role: 'New member',
-  email: 'you@example.com',
+  email: 't0b1@proton.me',
   socials: {
     twitter: 'https://twitter.com/your-handle',
     github: 'https://github.com/your-username',
@@ -25,9 +25,9 @@ export const OWNER_PROFILE = {
 // There's no server behind it, so accounts, comments, likes and uploaded avatars are left out.
 export const STATIC_SITE = import.meta.env.PUBLIC_STATIC_SITE === 'true';
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
-// the server's per-user photo; on the static site the owner is the cat, anyone else the default silhouette
+// the server's per-user photo; on the static site the owner's photo (public/owner.jpg), anyone else the default silhouette
 export const avatarUrl = (name: string) =>
-  STATIC_SITE ? `${BASE}/${name.toLowerCase() === SITE.handle.toLowerCase() ? 'cat' : 'avatar'}.svg` : `/avatar/${encodeURIComponent(name)}`;
+  STATIC_SITE ? `${BASE}/${name.toLowerCase() === SITE.handle.toLowerCase() ? 'owner.jpg' : 'avatar.svg'}` : `/avatar/${encodeURIComponent(name)}`;
 // hover-card hook: the server renders cards for its members, the static site renders the owner's (Base.astro)
 export const profileAttrs = (name: string) => ({ 'data-uprofile': name });
 // the owner's profile page

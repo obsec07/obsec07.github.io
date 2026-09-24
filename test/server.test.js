@@ -113,11 +113,11 @@ test('home page forum statistics are filled from the account database', async ()
   assert.match(text, /Latest member:<\/dt>\s*<dd>stats_user<\/dd>/);
 });
 
-test('the admin without an uploaded photo gets the cat avatar, others the default', async () => {
-  const cat = await client().req('/avatar/' + encodeURIComponent(ADMIN.username));
-  assert.match(cat.text, /aria-label="cat"/);
+test('the admin without an uploaded photo gets the owner photo, others the default', async () => {
+  const owner = await client().req('/avatar/' + encodeURIComponent(ADMIN.username));
+  assert.match(owner.headers.get('content-type'), /image\/jpeg/);
   const other = await client().req('/avatar/stats_user');
-  assert.ok(!/aria-label="cat"/.test(other.text));
+  assert.match(other.headers.get('content-type'), /image\/svg\+xml/);
 });
 
 test('client-supplied X-Forwarded-For entries are not trusted', async () => {

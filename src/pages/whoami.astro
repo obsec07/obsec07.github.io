@@ -1,30 +1,39 @@
 ---
 import Base from '../layouts/Base.astro';
-import { SITE } from '../config';
+import ShareBar from '../components/ShareBar.astro';
+import { SITE, OWNER_PROFILE, avatarUrl } from '../config';
+import { fmtDate } from '../lib/owner';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const href = (p: string) => (base + p).replace(/\/{2,}/g, '/') || '/';
+const pageUrl = new URL(href('/whoami'), Astro.site).href;
+// display forms of the social links: @handle for X, github.com/<user> for GitHub
+const xHandle = '@' + SITE.socials.twitter.replace(/\/+$/, '').split('/').pop();
+const ghShort = SITE.socials.github.replace(/^https?:\/\/(www\.)?/, '').replace(/\/+$/, '');
 ---
 <Base title="Who Am I">
-  <article class="article">
-    <a class="back" href={base || '/'}>&larr; back to forums</a>
+  <article class="whoami">
     <h1>Who Am I</h1>
+    <img class="whoami-av" src={avatarUrl(SITE.handle)} alt={SITE.handle} width="170" height="170" />
     <div class="prose">
       <p>
-        I'm <strong>tobi</strong> — a security researcher. I hunt for bugs in web apps, play CTFs,
-        and write up the interesting ones here. Expect CTF writeups, the occasional 0day / CVE, and
-        infosec blog posts.
+        Hey there! I'm <strong>{SITE.handle}</strong> — a security researcher. I hunt for bugs in web apps, play CTFs,
+        and write up the interesting ones here. Expect CTF writeups, the occasional 0day / CVE, and infosec blog posts.
       </p>
-      <h2>What you'll find here</h2>
+      <p>What you'll find here:</p>
       <ul>
         <li><strong>CTF Writeups</strong> — challenge walkthroughs I found interesting or enjoyable.</li>
         <li><strong>0day / research</strong> — vulnerabilities and CVEs I've dug into.</li>
         <li><strong>InfoSec Blog</strong> — notes, techniques and things I've learned.</li>
         <li><strong>Tools</strong> — scripts and tooling I release.</li>
       </ul>
-      <h2>Contact</h2>
+      <p>Feel free to connect with me:</p>
       <ul>
-        <li>twitter — <a href={SITE.socials.twitter}>{SITE.socials.twitter}</a></li>
-        <li>mail — <a href={`mailto:${SITE.email}`}>{SITE.email}</a></li>
+        <li>Email: <a href={`mailto:${SITE.email}`}>{SITE.email}</a></li>
+        <li>X: <a href={SITE.socials.twitter}>{xHandle}</a></li>
+        <li>GitHub: <a href={SITE.socials.github}>{ghShort}</a></li>
       </ul>
     </div>
+    <div class="whoami-meta"><span>Published:</span> {fmtDate(new Date(OWNER_PROFILE.joined))}</div>
+    <ShareBar url={pageUrl} title={`Who Am I · ${SITE.handle}`} label="Share:" />
   </article>
 </Base>

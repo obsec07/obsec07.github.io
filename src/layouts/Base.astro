@@ -9,7 +9,7 @@ const { title, description, noindex = false } = Astro.props;
 const pageTitle = title ? `${title} · ${SITE.handle}` : SITE.title;
 const desc = description || SITE.description;
 const favicon = "data:image/svg+xml," + encodeURIComponent(
-  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='#faf6f1'/><path d='M10 1.5 C13 2.5 14 6 14 8.5 C14 12 11.5 15 8 15.5 C4.5 15 2 11.5 2 8.5 C2 5.5 4 2.5 7 2 C8 1.7 9 1.3 10 1.5 Z' fill='#6b7078' stroke='#22262b' stroke-width='.8'/><circle cx='6' cy='7' r='1.4' fill='#17191d'/><path d='M11 7.5 C12.4 7.5 13 9 12 10.2 C11 11 9.6 10.4 9.6 9 C9.6 8 10 7.5 11 7.5 Z' fill='#faf6f1'/></svg>"
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M10 1.5 C13 2.5 14 6 14 8.5 C14 12 11.5 15 8 15.5 C4.5 15 2 11.5 2 8.5 C2 5.5 4 2.5 7 2 C8 1.7 9 1.3 10 1.5 Z' fill='#6b7078' stroke='#22262b' stroke-width='.8'/><circle cx='6' cy='7' r='1.4' fill='#17191d'/><path d='M11 7.5 C12.4 7.5 13 9 12 10.2 C11 11 9.6 10.4 9.6 9 C9.6 8 10 7.5 11 7.5 Z' fill='#faf6f1'/></svg>"
 );
 const rssHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/rss.xml').replace(/\/{2,}/g, '/');
 const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').replace(/\/{2,}/g, '/');
@@ -54,12 +54,14 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
           if (ok) ok.addEventListener('click', function () { localStorage.setItem('cookie-ok', '1'); document.getElementById('cookie').style.display = 'none'; });
         } catch (e) {}
       })();
-      // hover profile card (XenForo-style) — appears after ~3s of hover; click opens the full member page
+      // hover profile card (XenForo-style): shows after a short hover (so sweeping the mouse across the page doesn't
+      // flash cards), hides as soon as the mouse leaves (brief grace to move onto the card); click opens the profile
       (function () {
         var host = document.getElementById('uprofile-host'); if (!host) return;
         var showT, hideT;
         function hideAll() { host.querySelectorAll('.uprofile').forEach(function (c) { c.classList.remove('show'); }); }
-        function scheduleHide() { clearTimeout(hideT); hideT = setTimeout(hideAll, 120); }
+        var SHOW_MS = 250, HIDE_MS = 100;
+        function scheduleHide() { clearTimeout(hideT); hideT = setTimeout(hideAll, HIDE_MS); }
         function place(card, el) {
           var r = el.getBoundingClientRect();
           var vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
@@ -83,7 +85,7 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
             showT = setTimeout(function () {
               var card = host.querySelector('.uprofile[data-user="' + key + '"]');
               if (card) { hideAll(); place(card, el); }
-            }, 1000);
+            }, SHOW_MS);
           });
           el.addEventListener('mouseleave', function () { clearTimeout(showT); scheduleHide(); });
           el.style.cursor = 'pointer';
@@ -92,6 +94,11 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
             location.href = (card && card.getAttribute('data-href')) || '/members/' + encodeURIComponent(key);
           });
         });
+        // never leave a card hanging: scrolling, switching windows or Esc close it at once
+        function hideNow() { clearTimeout(showT); clearTimeout(hideT); hideAll(); }
+        window.addEventListener('scroll', hideNow, { passive: true });
+        window.addEventListener('blur', hideNow);
+        document.addEventListener('keydown', function (e) { if (e.key === 'Escape') hideNow(); });
       })();
     </script>
   </body>
