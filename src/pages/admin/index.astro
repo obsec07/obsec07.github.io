@@ -4,6 +4,7 @@
 // which redeploys the site. Accounts, comments and users stay in the Node server's /admin-panel.
 import { SITE } from '../../config';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const sso = !!process.env.CMS_AUTH_URL;   // see config.yml.js
 ---
 <!doctype html>
 <html lang="en">
@@ -15,6 +16,14 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     <link href={`${base}/admin/config.yml`} type="application/yaml" rel="cms-config-url" />
   </head>
   <body>
+    {!sso && (
+      <script is:inline>
+        // no OAuth relay configured: hide "Sign In with GitHub" (it would fail) and leave "Sign In Using Access Token"
+        new MutationObserver(function () {
+          document.querySelectorAll('button').forEach(function (b) { if (/Sign In with GitHub/i.test(b.textContent.replace(/[\u2066-\u2069]/g, ''))) b.style.display = 'none'; });
+        }).observe(document.documentElement, { childList: true, subtree: true });
+      </script>
+    )}
     <script is:inline src="https://unpkg.com/@sveltia/cms/dist/sveltia-cms.js" type="module"></script>
   </body>
 </html>
