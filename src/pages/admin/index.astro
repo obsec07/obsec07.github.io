@@ -1,0 +1,20 @@
+---
+// /admin — Sveltia CMS, an admin that runs entirely in the browser, so it works on GitHub Pages (no server).
+// Sign in with a GitHub access token that can write to this repo; every save is a commit to `main`,
+// which redeploys the site. Accounts, comments and users stay in the Node server's /admin-panel.
+import { SITE } from '../../config';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>Admin · {SITE.handle}</title>
+    <link href={`${base}/admin/config.yml`} type="application/yaml" rel="cms-config-url" />
+  </head>
+  <body>
+    <script is:inline src="https://unpkg.com/@sveltia/cms/dist/sveltia-cms.js" type="module"></script>
+  </body>
+</html>

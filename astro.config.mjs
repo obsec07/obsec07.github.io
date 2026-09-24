@@ -8,8 +8,8 @@ export default defineConfig({
   site: process.env.SITE_URL || process.env.RENDER_EXTERNAL_URL || 'http://localhost:4331',
   base: process.env.BASE_PATH || '/',
   trailingSlash: 'ignore',
-  // /account and /members are empty shells the Node server fills per visitor — nothing for search engines
-  integrations: [sitemap({ filter: (page) => !/\/(account|members)\/?$/.test(new URL(page).pathname) })],
+  // /account and /members are empty shells the Node server fills per visitor, /admin is the CMS — nothing for search engines
+  integrations: [sitemap({ filter: (page) => !/\/(account|members|admin)\/?$/.test(new URL(page).pathname) })],
   markdown: {
     shikiConfig: { theme: 'github-light', wrap: true },
   },

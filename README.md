@@ -72,6 +72,16 @@ The address comes from the GitHub account name: `https://<account>.github.io/<re
 `obsec07.github.io/secblog`. Rename the repo to `<account>.github.io` to drop the `/secblog` part, or add a
 custom domain under Settings → Pages. The workflow picks up the right URL and path automatically.
 
+**Writing posts on the Pages site: `/admin`.** A browser-only admin (Sveltia CMS) for creating and
+editing posts. Each save is a commit to `main`, and the site redeploys about 2 minutes later.
+1. Create a token at GitHub → Settings → Developer settings → **Fine-grained tokens** → *Generate new token*.
+   Under Repository access pick **Only select repositories** and choose this repo. Under Permissions set
+   **Contents: Read and write**.
+2. Open `/admin`, click **Sign In Using Access Token** and paste the token. It stays in that browser only.
+
+The "Sign In with GitHub" button would need a separate OAuth server, which isn't set up. Users, comments
+and the full admin panel exist only on the Node server (`/admin-panel`).
+
 **Docker** (Fly.io, Railway, a VPS, …):
 ```bash
 docker build -t secblog .
