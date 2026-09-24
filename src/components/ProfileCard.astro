@@ -1,0 +1,27 @@
+---
+// Hover card for the owner on the static site (same markup as the server's cards, so the same CSS + script apply).
+import { SITE, OWNER_PROFILE, avatarUrl, profileUrl } from '../config';
+import { ownerStats, fmtDate } from '../lib/owner';
+const s = await ownerStats();
+const link = profileUrl(SITE.handle);
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+<div class="uprofile" data-user={SITE.handle.toLowerCase()} data-href={link}>
+  <div class="up-top">
+    <a href={link}><img class="up-av" src={avatarUrl(SITE.handle)} alt={SITE.handle} /></a>
+    <div class="up-meta">
+      <a class="up-name" href={link}>{SITE.handle}</a>
+      <div class="up-badges"><span class="up-badge staff">Staff member</span><span class="up-badge">Member</span></div>
+      <div class="up-role">{OWNER_PROFILE.role}</div>
+      <div class="up-since">Joined: <b>{s.joined}</b></div>
+      {s.latest && (
+        <div class="up-since">Latest post: <b>{fmtDate(s.latest.data.date)}</b> · <a class="up-last" href={`${base}/posts/${s.latest.id}`}>{s.latest.data.title}</a></div>
+      )}
+    </div>
+  </div>
+  <div class="up-stats">
+    <div><span>Messages</span><b>{s.messages}</b></div>
+    <div><span>Reaction score</span><b>{s.reactions}</b></div>
+    <div><span>Points</span><b>{s.points}</b></div>
+  </div>
+</div>

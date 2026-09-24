@@ -1,29 +1,190 @@
 ---
-// /admin — Sveltia CMS, an admin that runs entirely in the browser, so it works on GitHub Pages (no server).
-// Sign in with a GitHub access token that can write to this repo; every save is a commit to `main`,
-// which redeploys the site. Accounts, comments and users stay in the Node server's /admin-panel.
-import { SITE } from '../../config';
+// /admin — username/password admin for the static site. Logging in decrypts the GitHub token sealed in
+// /admin/vault.json (see vault.json.js); posts are then listed, written and deleted through the GitHub API, and every
+// save is a commit to `main`, which redeploys the site. The Node server has its own /login + /admin-panel instead.
+import Base from '../../layouts/Base.astro';
+import { STATIC_SITE } from '../../config';
+import { CATEGORIES } from '../../content.config';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
-const sso = !!process.env.CMS_AUTH_URL;   // see config.yml.js
+const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
 ---
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="robots" content="noindex" />
-    <title>Admin · {SITE.handle}</title>
-    <link href={`${base}/admin/config.yml`} type="application/yaml" rel="cms-config-url" />
-  </head>
-  <body>
-    {!sso && (
-      <script is:inline>
-        // no OAuth relay configured: hide "Sign In with GitHub" (it would fail) and leave "Sign In Using Access Token"
-        new MutationObserver(function () {
-          document.querySelectorAll('button').forEach(function (b) { if (/Sign In with GitHub/i.test(b.textContent.replace(/[\u2066-\u2069]/g, ''))) b.style.display = 'none'; });
-        }).observe(document.documentElement, { childList: true, subtree: true });
-      </script>
-    )}
-    <script is:inline src="https://unpkg.com/@sveltia/cms/dist/sveltia-cms.js" type="module"></script>
-  </body>
-</html>
+<Base title="Admin" noindex>
+  <div class="page-head"><h1>Admin</h1></div>
+  {!STATIC_SITE ? (
+    <div class="acct-empty">This server has its own admin: <a href="/login">log in</a>, then open the admin panel.</div>
+  ) : (
+    <div id="adm" data-repo={repo} data-vault={`${base}/admin/vault.json`}>
+      <section id="adm-login">
+        <form class="acct-form adm-login" id="adm-login-form">
+          <div class="frow"><div class="lab">Username</div><div class="fld"><input type="text" name="user" autocomplete="username" required /></div></div>
+          <div class="frow"><div class="lab">Password</div><div class="fld"><input type="password" name="pass" autocomplete="current-password" required /></div></div>
+          <div class="acct-actions"><span class="adm-err" id="adm-login-err" role="alert"></span><button class="save-btn" type="submit">Log in</button></div>
+        </form>
+        <div class="acct-empty" id="adm-off" hidden>Admin login isn't set up yet. Add the <b>ADMIN_PASSWORD</b> and <b>ADMIN_TOKEN</b> repository secrets, then re-run <b>Deploy to GitHub Pages</b>.</div>
+      </section>
+
+      <section id="adm-app" hidden>
+        <div class="adm-bar">
+          <span>Signed in as <b id="adm-who"></b></span>
+          <span class="adm-actions"><button class="save-btn" id="adm-new" type="button">+ New post</button><button class="save-btn" id="adm-out" type="button">Log out</button></span>
+        </div>
+        <div id="adm-msg" class="acct-note" hidden></div>
+        <div class="threadlist" id="adm-list-box">
+          <div class="tl-head"><span id="adm-count">Posts</span></div>
+          <div id="adm-list"><div class="tl-empty">Loading…</div></div>
+        </div>
+        <form class="acct-form" id="adm-editor" hidden>
+          <div class="frow"><div class="lab">Title</div><div class="fld"><input type="text" name="title" maxlength="200" required /></div></div>
+          <div class="frow"><div class="lab">Slug</div><div class="fld"><input type="text" name="slug" placeholder="auto from title" /><div class="hint">The post's address: /posts/&lt;slug&gt;. Can't be changed after publishing.</div></div></div>
+          <div class="frow"><div class="lab">Category</div><div class="fld"><select name="category">{CATEGORIES.map((c) => <option value={c}>{c}</option>)}</select></div></div>
+          <div class="frow"><div class="lab">Date</div><div class="fld"><input type="date" name="date" required /></div></div>
+          <div class="frow"><div class="lab">Description</div><div class="fld"><input type="text" name="description" maxlength="300" /><div class="hint">One-liner shown on the post lists.</div></div></div>
+          <div class="frow"><div class="lab">Tags</div><div class="fld"><input type="text" name="tags" placeholder="htb, web, jwt" /></div></div>
+          <div class="frow"><div class="lab">Status</div><div class="fld"><select name="status"><option value="published">Published</option><option value="draft">Draft (hidden)</option></select></div></div>
+          <div class="frow"><div class="lab">Body</div><div class="fld"><textarea name="body" rows="20" class="adm-body" placeholder="Markdown…"></textarea></div></div>
+          <div class="acct-actions"><button class="save-btn" type="button" id="adm-cancel">Cancel</button> <button class="save-btn" type="submit" id="adm-save">Save</button></div>
+        </form>
+      </section>
+    </div>
+  )}
+</Base>
+
+<script>
+  import yaml from 'js-yaml';
+
+  const root = document.getElementById('adm');
+  if (root) {
+    const REPO = root.dataset.repo, VAULT = root.dataset.vault, DIR = 'src/content/posts', BRANCH = 'main';
+    const API = `https://api.github.com/repos/${REPO}/contents/`;
+    const $ = (id) => document.getElementById(id);
+    const enc = new TextEncoder(), dec = new TextDecoder();
+    const toB64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(s); };
+    const fromB64 = (b) => Uint8Array.from(atob(String(b).replace(/\s/g, '')), (c) => c.charCodeAt(0));
+    const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    const isoDate = (d) => (d instanceof Date ? d.toISOString().slice(0, 10) : String(d ?? '').slice(0, 10));
+    const today = () => new Date().toISOString().slice(0, 10);
+    const slugify = (s) => String(s).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80) || 'post';
+    let session = null, posts = [], editing = null;
+
+    const store = {
+      get() { try { return JSON.parse(sessionStorage.getItem('adm') || 'null'); } catch { return null; } },
+      set(v) { try { v ? sessionStorage.setItem('adm', JSON.stringify(v)) : sessionStorage.removeItem('adm'); } catch {} },
+    };
+    const note = (msg, kind = 'ok') => { const n = $('adm-msg'); n.textContent = msg; n.className = `acct-note ${kind}`; n.hidden = !msg; };
+
+    // username + password -> key (PBKDF2) -> decrypt the sealed GitHub token; a wrong login fails the GCM check
+    async function unlock(user, pass) {
+      const v = await (await fetch(VAULT, { cache: 'no-store' })).json();
+      if (!v.configured) throw Object.assign(new Error('not configured'), { off: true });
+      const material = await crypto.subtle.importKey('raw', enc.encode(`${user}\n${pass}`), 'PBKDF2', false, ['deriveKey']);
+      const key = await crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt: fromB64(v.salt), iterations: v.iter }, material, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+      try { return JSON.parse(dec.decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(v.iv) }, key, fromB64(v.ct)))); }
+      catch { throw new Error('Invalid username or password.'); }
+    }
+
+    async function gh(path, opts = {}) {
+      const r = await fetch(API + path, { ...opts, cache: 'no-store', headers: { Authorization: `Bearer ${session.token}`, Accept: 'application/vnd.github+json', ...(opts.body ? { 'Content-Type': 'application/json' } : {}) } });
+      if (r.status === 401) { logout(); throw new Error('GitHub rejected the saved token (expired or revoked). Update the ADMIN_TOKEN secret and redeploy.'); }
+      if (r.status === 404 && !opts.method) return null;
+      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(`GitHub error ${r.status}${j.message ? `: ${j.message}` : ''}`); }
+      return r.json();
+    }
+
+    function parse(text) {
+      const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text);
+      let data = {};
+      try { data = (m && yaml.load(m[1])) || {}; } catch {}
+      return { data, body: m ? m[2].replace(/^\r?\n/, '') : text };
+    }
+    const serialize = (data, body) => `---\n${yaml.dump(data, { lineWidth: -1 })}---\n\n${body.replace(/^\s*\n/, '')}`;
+
+    async function loadPosts() {
+      $('adm-list').innerHTML = '<div class="tl-empty">Loading…</div>';
+      const files = ((await gh(`${DIR}?ref=${BRANCH}`)) || []).filter((f) => f.type === 'file' && f.name.endsWith('.md'));
+      posts = await Promise.all(files.map(async (f) => {
+        const full = await gh(`${f.path}?ref=${BRANCH}`);
+        return { slug: f.name.replace(/\.md$/, ''), path: f.path, sha: full.sha, ...parse(dec.decode(fromB64(full.content))) };
+      }));
+      posts.sort((a, b) => isoDate(b.data.date).localeCompare(isoDate(a.data.date)));
+      $('adm-count').textContent = `Posts (${posts.length})`;
+      $('adm-list').innerHTML = posts.length ? posts.map((p, i) => `
+        <div class="adm-row">
+          <div class="adm-main"><div class="tl-title">${esc(p.data.title || p.slug)} ${p.data.draft ? '<span class="adm-draft">draft</span>' : ''}</div>
+            <div class="tl-sub">${esc(p.data.category)} · ${esc(isoDate(p.data.date))} · /posts/${esc(p.slug)}</div></div>
+          <div class="adm-acts"><button class="save-btn" type="button" data-edit="${i}">Edit</button><button class="save-btn adm-del" type="button" data-del="${i}">Delete</button></div>
+        </div>`).join('') : '<div class="tl-empty">No posts yet. Click “+ New post”.</div>';
+    }
+
+    function openEditor(p) {
+      editing = p;
+      const f = $('adm-editor');
+      f.elements.title.value = p ? p.data.title || '' : '';
+      f.elements.slug.value = p ? p.slug : '';
+      f.elements.slug.readOnly = !!p;
+      f.elements.category.value = p ? p.data.category || 'infosec' : 'ctf';
+      f.elements.date.value = p ? isoDate(p.data.date) : today();
+      f.elements.description.value = p ? p.data.description || '' : '';
+      f.elements.tags.value = p ? (p.data.tags || []).join(', ') : '';
+      f.elements.status.value = p && p.data.draft ? 'draft' : 'published';
+      f.elements.body.value = p ? p.body : '';
+      $('adm-list-box').hidden = true; f.hidden = false; f.elements.title.focus();
+    }
+    function closeEditor() { editing = null; $('adm-editor').hidden = true; $('adm-list-box').hidden = false; }
+
+    async function save(e) {
+      e.preventDefault();
+      const f = $('adm-editor'), v = (n) => f.elements[n].value;
+      const title = v('title').trim();
+      if (!title) return note('A title is required.', 'err');
+      const data = { title, date: v('date') || today(), category: v('category'), description: v('description').trim(),
+        tags: v('tags').split(',').map((t) => t.trim()).filter(Boolean), draft: v('status') === 'draft' };
+      let slug = editing ? editing.slug : slugify(v('slug') || title);
+      if (!editing) { const taken = new Set(posts.map((p) => p.slug)); let s = slug, n = 2; while (taken.has(s)) s = `${slug}-${n++}`; slug = s; }
+      $('adm-save').disabled = true;
+      try {
+        await gh(`${DIR}/${slug}.md`, { method: 'PUT', body: JSON.stringify({
+          message: `${editing ? 'Update' : 'Add'} post: ${title}`, branch: BRANCH,
+          content: toB64(enc.encode(serialize(data, v('body')))), ...(editing ? { sha: editing.sha } : {}) }) });
+        note(`Saved “${title}”. The site updates in about 2 minutes.`);
+        closeEditor(); await loadPosts();
+      } catch (x) { note(x.message, 'err'); }
+      finally { $('adm-save').disabled = false; }
+    }
+
+    async function remove(p) {
+      if (!confirm(`Delete “${p.data.title || p.slug}”? It will disappear from the site.`)) return;
+      try {
+        await gh(p.path, { method: 'DELETE', body: JSON.stringify({ message: `Delete post: ${p.data.title || p.slug}`, sha: p.sha, branch: BRANCH }) });
+        note(`Deleted “${p.data.title || p.slug}”. The site updates in about 2 minutes.`); await loadPosts();
+      } catch (x) { note(x.message, 'err'); }
+    }
+
+    async function showApp() {
+      $('adm-login').hidden = true; $('adm-app').hidden = false; $('adm-who').textContent = session.user;
+      try { await loadPosts(); } catch (x) { note(x.message, 'err'); }
+    }
+    function logout() { session = null; store.set(null); note(''); closeEditor(); $('adm-app').hidden = true; $('adm-login').hidden = false; }
+
+    $('adm-login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const f = e.currentTarget, btn = f.querySelector('button'), err = $('adm-login-err');
+      err.textContent = ''; btn.disabled = true; btn.textContent = 'Checking…';
+      try { session = await unlock(f.elements.user.value.trim(), f.elements.pass.value); store.set(session); f.reset(); await showApp(); }
+      catch (x) { if (x.off) { f.hidden = true; $('adm-off').hidden = false; } else err.textContent = x.message; }
+      finally { btn.disabled = false; btn.textContent = 'Log in'; }
+    });
+    $('adm-out').addEventListener('click', logout);
+    $('adm-new').addEventListener('click', () => { note(''); openEditor(null); });
+    $('adm-cancel').addEventListener('click', closeEditor);
+    $('adm-editor').addEventListener('submit', save);
+    $('adm-list').addEventListener('click', (e) => {
+      const t = e.target.closest('button'); if (!t) return;
+      if (t.dataset.edit) { note(''); openEditor(posts[+t.dataset.edit]); }
+      if (t.dataset.del) remove(posts[+t.dataset.del]);
+    });
+
+    session = store.get();
+    if (session) showApp();
+    else fetch(VAULT, { cache: 'no-store' }).then((r) => r.json()).then((v) => { if (!v.configured) { $('adm-login-form').hidden = true; $('adm-off').hidden = false; } }).catch(() => {});
+  }
+</script>

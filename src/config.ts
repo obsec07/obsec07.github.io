@@ -13,14 +13,25 @@ export const SITE = {
   banner: '',
 };
 
+// Owner profile on the static site (hover card, author card, /members/<handle>). The Node server uses live account data.
+export const OWNER_PROFILE = {
+  role: 'Administrator',
+  joined: '2026-08-06',
+  about: "Security researcher. I hunt for bugs in web apps, play CTFs and write up the interesting ones here.",
+  reactions: 0,
+};
+
 // ---- Static-only build (GitHub Pages): built with PUBLIC_STATIC_SITE=true ----
-// There's no server behind it, so accounts, comments, likes, member pages and uploaded avatars are left out.
+// There's no server behind it, so accounts, comments, likes and uploaded avatars are left out.
 export const STATIC_SITE = import.meta.env.PUBLIC_STATIC_SITE === 'true';
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
-// the server's per-user photo, or the default silhouette on the static site
-export const avatarUrl = (name: string) => (STATIC_SITE ? `${BASE}/avatar.svg` : `/avatar/${encodeURIComponent(name)}`);
-// hover-card / member-page hook; only the server renders the cards it opens
-export const profileAttrs = (name: string) => (STATIC_SITE ? {} : { 'data-uprofile': name });
+// the server's per-user photo; on the static site the owner is the cat, anyone else the default silhouette
+export const avatarUrl = (name: string) =>
+  STATIC_SITE ? `${BASE}/${name.toLowerCase() === SITE.handle.toLowerCase() ? 'cat' : 'avatar'}.svg` : `/avatar/${encodeURIComponent(name)}`;
+// hover-card hook: the server renders cards for its members, the static site renders the owner's (Base.astro)
+export const profileAttrs = (name: string) => ({ 'data-uprofile': name });
+// the owner's profile page
+export const profileUrl = (name: string) => `${BASE}/members/${encodeURIComponent(name.toLowerCase())}/`;
 
 export const NAV = [
   { label: 'Home', href: '/' },

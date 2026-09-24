@@ -35,8 +35,11 @@ jobs:
           PUBLIC_STATIC_SITE: 'true'
           SITE_URL: ${{ steps.pages.outputs.origin }}
           BASE_PATH: ${{ steps.pages.outputs.base_path }}
-          # OAuth relay for "Sign In with GitHub" on /admin (see README); empty = token sign-in only
-          CMS_AUTH_URL: ${{ vars.CMS_AUTH_URL }}
+          # /admin login: the build encrypts ADMIN_TOKEN with the admin username + password and publishes only the
+          # ciphertext (see src/pages/admin/vault.json.js). Without these secrets /admin says it isn't set up.
+          ADMIN_USERNAME: ${{ vars.ADMIN_USERNAME }}
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
