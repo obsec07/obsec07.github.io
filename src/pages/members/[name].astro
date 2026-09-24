@@ -106,8 +106,10 @@ const tabs = [['profile-posts', 'Profile posts'], ['activity', 'Latest activity'
         document.querySelectorAll('.profile-pane').forEach(function (p) { p.hidden = p.getAttribute('data-pane') !== k; });
       }
       tabs.forEach(function (t) { t.addEventListener('click', function () { show(t.getAttribute('data-tab')); history.replaceState(null, '', '#' + t.getAttribute('data-tab')); }); });
-      var h = location.hash.slice(1);
-      if (h && document.querySelector('.profile-pane[data-pane="' + h + '"]')) show(h);
+      // #postings etc. open that tab, on load and when a link on this page changes the hash
+      function fromHash() { var h = location.hash.slice(1); if (h && document.querySelector('.profile-pane[data-pane="' + h + '"]')) show(h); }
+      fromHash();
+      window.addEventListener('hashchange', fromHash);
     })();
   </script>
 </Base>

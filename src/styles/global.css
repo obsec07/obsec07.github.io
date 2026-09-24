@@ -65,7 +65,7 @@ a:hover { text-decoration: underline; }
   .logo svg { height: 34px; }
   .logo .word { font-size: 22px; }
   .nav { gap: 14px; }
-  .nav-item:not(:first-child) { display: none; }   /* Forums / What's new: the sub-nav + home page cover them */
+  .nav > .nav-item:not(:first-child) { display: none; }   /* header Forums / What's new: the sub-nav + home page cover them */
   .h-icons { margin-left: 0; }
 }
 
@@ -280,7 +280,9 @@ a:hover { text-decoration: underline; }
 .nav-item > a .caret { font-size: 10px; opacity: .6; margin-left: 4px; }
 .dropdown { position: absolute; top: 100%; left: -8px; min-width: 200px; background: var(--card); border: 1px solid var(--border-hi); border-radius: 10px; box-shadow: 0 12px 30px rgba(18,32,58,.16); padding: 6px; z-index: 40;
   opacity: 0; visibility: hidden; transform: translateY(6px); pointer-events: none; transition: opacity .18s ease, transform .18s ease, visibility .18s; }
-.nav-item:hover .dropdown, .nav-item:focus-within .dropdown { opacity: 1; visibility: visible; transform: none; pointer-events: auto; }
+/* hover opens menus only where there is a mouse; a tap/click (.open, set in Base.astro) or keyboard focus works everywhere */
+@media (hover: hover) { .nav-item:hover .dropdown { opacity: 1; visibility: visible; transform: none; pointer-events: auto; } }
+.nav-item:focus-within .dropdown, .nav-item.open .dropdown { opacity: 1; visibility: visible; transform: none; pointer-events: auto; }
 .dropdown a { display: block; padding: 8px 12px; border-radius: 7px; color: var(--ink); font-family: var(--body); font-weight: 500; font-size: 14.5px; }
 .dropdown a:hover { background: var(--sub-bar); color: var(--pink); text-decoration: none; }
 
@@ -437,6 +439,18 @@ img[data-uprofile]:hover { box-shadow: 0 0 0 2px var(--ink); }
 .share a, .share button { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--muted); cursor: pointer; transition: background .12s, color .12s; }
 .share a:hover, .share button:hover, .share a:focus-visible, .share button:focus-visible { background: var(--brand, var(--ink)); color: #fff; }
 .share svg { width: 18px; height: 18px; }
+.share button.copied { background: #38b45e; color: #fff; }
+/* "Link copied" confirmation */
+.share-toast { position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 12px); background: var(--ink); color: #fff; padding: 9px 16px; border-radius: 8px; font-size: 14px; box-shadow: var(--shadow); z-index: 80; opacity: 0; visibility: hidden; pointer-events: none; transition: opacity .18s ease, transform .18s ease, visibility .18s; }
+.share-toast.show { opacity: 1; visibility: visible; transform: translate(-50%, 0); }
+/* share menu behind the icon at the top of a post */
+.share-menu { position: relative; }
+.share-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 45; background: var(--card); border: 1px solid var(--border-hi); border-radius: 10px; box-shadow: 0 12px 30px rgba(18,32,58,.16); padding: 10px 10px 8px; min-width: 232px; animation: fade-up .18s ease both; }
+.share-pop-title { font-size: 13px; color: var(--muted); margin: 0 4px 6px; }
+.share-native { display: block; width: 100%; margin-top: 6px; padding: 7px 10px; border: 1px solid var(--border-hi); border-radius: 7px; background: none; color: var(--ink); font: inherit; font-size: 13.5px; cursor: pointer; }
+.share-native:hover { background: var(--sub-bar); }
+.msg-share[aria-expanded="true"] { color: var(--pink); background: var(--card); }
+.thread-share { display: flex; justify-content: flex-end; padding: 10px 16px; border-top: 1px solid var(--border); }
 
 /* ---- cookie banner ---- */
 .cookie { position: fixed; left: 0; right: 0; bottom: 0; background: rgba(250,246,241,.97); border-top: 1px solid var(--border); backdrop-filter: blur(4px); padding: 18px; text-align: center; z-index: 60; animation: slide-up .35s ease both; }
