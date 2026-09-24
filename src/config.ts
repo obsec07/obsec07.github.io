@@ -13,6 +13,15 @@ export const SITE = {
   banner: '',
 };
 
+// ---- Static-only build (GitHub Pages): built with PUBLIC_STATIC_SITE=true ----
+// There's no server behind it, so accounts, comments, likes, member pages and uploaded avatars are left out.
+export const STATIC_SITE = import.meta.env.PUBLIC_STATIC_SITE === 'true';
+const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
+// the server's per-user photo, or the default silhouette on the static site
+export const avatarUrl = (name: string) => (STATIC_SITE ? `${BASE}/avatar.svg` : `/avatar/${encodeURIComponent(name)}`);
+// hover-card / member-page hook; only the server renders the cards it opens
+export const profileAttrs = (name: string) => (STATIC_SITE ? {} : { 'data-uprofile': name });
+
 export const NAV = [
   { label: 'Home', href: '/' },
   {

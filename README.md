@@ -61,6 +61,17 @@ Customize the site:
 **Render:** Dashboard → New → Blueprint → pick this repo. It reads `render.yaml`. Then set `ADMIN_PASSWORD`
 under the service's Environment tab.
 
+**GitHub Pages** (free, read-only copy of the blog). `.github/workflows/pages.yml` publishes the posts, category
+and tag pages, search and RSS on every push to `main`. Pages can only serve files, so there are no accounts,
+comments, likes or admin panel there. Those keep running on the Node deployment.
+1. Repo **Settings → Pages → Build and deployment → Source: GitHub Actions** (one time; the deploy fails
+   until this is set).
+2. Push to `main`, or re-run the workflow from the Actions tab.
+
+The address comes from the GitHub account name: `https://<account>.github.io/<repo>`, e.g.
+`obsec07.github.io/secblog`. Rename the repo to `<account>.github.io` to drop the `/secblog` part, or add a
+custom domain under Settings → Pages. The workflow picks up the right URL and path automatically.
+
 **Docker** (Fly.io, Railway, a VPS, …):
 ```bash
 docker build -t secblog .
