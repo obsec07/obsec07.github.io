@@ -22,7 +22,7 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
         <form class="acct-form adm-login" id="adm-token-form">
           <div class="frow"><div class="lab">Access token</div><div class="fld">
             <input type="password" name="token" autocomplete="off" spellcheck="false" placeholder="github_pat_…" required />
-            <div class="hint">Your GitHub fine-grained token with <b>Contents: Read and write</b> on this repository. It stays in this browser and is only ever sent to GitHub.</div>
+            <div class="hint">A GitHub fine-grained token: <b>Repository access → Only select repositories → {repo.split('/')[1]}</b>, and <b>Permissions → Contents → Read and write</b>. It stays in this browser and is only ever sent to GitHub.</div>
           </div></div>
           <div class="frow"><div class="lab"></div><div class="fld"><label class="adm-remember"><input type="checkbox" name="remember" /> Keep me signed in on this device</label></div></div>
           <div class="acct-actions"><span class="adm-err" id="adm-token-err" role="alert"></span><button class="save-btn" type="submit">Log in</button></div>
@@ -54,7 +54,7 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
           <div class="frow"><div class="lab">Tags</div><div class="fld"><input type="text" name="tags" placeholder="htb, web, jwt" /></div></div>
           <div class="frow"><div class="lab">Status</div><div class="fld"><select name="status"><option value="published">Published</option><option value="draft">Draft (hidden)</option></select></div></div>
           <div class="frow"><div class="lab">Body</div><div class="fld"><textarea name="body" rows="20" class="adm-body" placeholder="Markdown…"></textarea></div></div>
-          <div class="acct-actions"><button class="save-btn" type="button" id="adm-cancel">Cancel</button> <button class="save-btn" type="submit" id="adm-save">Save</button></div>
+          <div class="acct-actions"><span class="adm-err" id="adm-save-err" role="alert"></span><button class="save-btn" type="button" id="adm-cancel">Cancel</button> <button class="save-btn" type="submit" id="adm-save">Save</button></div>
         </form>
       </section>
     </div>
@@ -97,14 +97,30 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
       catch { throw new Error('Invalid username or password.'); }
     }
 
-    // access token -> ask GitHub whether it can reach (and write) this repo; show who it belongs to
+    // what to fix on the token, by kind: classic tokens (ghp_) have scopes, fine-grained ones per-repo permissions
+    const fixToken = (token) => /^ghp_/.test(token)
+      ? 'Edit the token on GitHub and tick the "repo" scope (or "public_repo").'
+      : `Edit the token on GitHub: Repository access → Only select repositories → ${REPO.split('/')[1]}, and Permissions → Contents → Read and write. Then log in again.`;
+    const ghMessage = async (r) => { try { return (await r.json()).message || ''; } catch { return ''; } };
+
+    // access token -> ask GitHub whether it can reach and write this repo; show who it belongs to
     async function tokenLogin(token) {
+      if (!token) throw new Error('Paste your token first.');
       const headers = { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' };
       const r = await fetch(`https://api.github.com/repos/${REPO}`, { headers, cache: 'no-store' });
-      if (r.status === 401) throw new Error('GitHub says this token is invalid or expired.');
-      if (!r.ok) throw new Error(`This token can't access ${REPO} (GitHub ${r.status}). Give it access to this repository.`);
+      if (r.status === 401) throw new Error('GitHub says this token is invalid or expired. Create a new one and paste it here.');
+      if (!r.ok) throw new Error(`This token can't see ${REPO} (GitHub ${r.status}). ${fixToken(token)}`);
       const repo = await r.json();
-      if (repo.permissions && repo.permissions.push === false) throw new Error("This token can read the repo but can't write to it. Give it Contents: Read and write.");
+      if (repo.permissions && repo.permissions.push === false) throw new Error(`This token can read the repo but not write to it. ${fixToken(token)}`);
+      // write check that changes nothing: a PUT with no file content. A token allowed to write gets 422 ("content
+      // wasn't supplied"); one that isn't gets 403/404 before the request is even looked at.
+      const w = await fetch(`${API}${DIR}/.admin-write-check`, { method: 'PUT', cache: 'no-store', headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: 'write check', branch: BRANCH }) });
+      if (w.status === 403 || w.status === 404) {
+        const m = await ghMessage(w);
+        if (/rate limit/i.test(m)) throw new Error('GitHub rate limit hit — wait a minute and try again.');
+        throw new Error(`This token can read the repo but GitHub won't let it save posts${m ? ` ("${m}")` : ''}. ${fixToken(token)}`);
+      }
       let user = 'admin';
       try { const u = await fetch('https://api.github.com/user', { headers, cache: 'no-store' }); if (u.ok) user = (await u.json()).login || user; } catch {}
       return { token, user };
@@ -112,11 +128,14 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
 
     async function gh(path, opts = {}) {
       const r = await fetch(API + path, { ...opts, cache: 'no-store', headers: { Authorization: `Bearer ${session.token}`, Accept: 'application/vnd.github+json', ...(opts.body ? { 'Content-Type': 'application/json' } : {}) } });
-      if (r.status === 401) { logout(); throw new Error('GitHub rejected the token (expired or revoked). Log in again with a valid token.'); }
-      if (r.status === 403 && opts.method) throw new Error("GitHub refused the change: the token needs Contents: Read and write on this repository.");
       if (r.status === 404 && !opts.method) return null;
-      if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(`GitHub error ${r.status}${j.message ? `: ${j.message}` : ''}`); }
-      return r.json();
+      if (r.ok) return r.json();
+      const m = await ghMessage(r);
+      if (r.status === 401) { logout('GitHub rejected the saved token (expired or revoked). Log in again with a valid token.'); throw Object.assign(new Error(''), { shown: true }); }
+      if (/rate limit/i.test(m)) throw new Error('GitHub rate limit hit — wait a minute and try again.');
+      if ((r.status === 403 || r.status === 404) && opts.method) throw new Error(`GitHub refused the change${m ? ` ("${m}")` : ''}. ${fixToken(session.token || '')}`);
+      if (r.status === 409 || r.status === 422) throw new Error(`GitHub refused the change${m ? ` ("${m}")` : ''}. If it says the file changed, reload this page and try again.`);
+      throw new Error(`GitHub error ${r.status}${m ? `: ${m}` : ''}`);
     }
 
     function parse(text) {
@@ -159,7 +178,7 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
       $('adm-list-box').hidden = true; f.hidden = false; f.elements.title.focus({ preventScroll: true });
       $('adm-app').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-    function closeEditor() { editing = null; $('adm-editor').hidden = true; $('adm-list-box').hidden = false; $('adm-app').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    function closeEditor() { editing = null; $('adm-save-err').textContent = ''; $('adm-editor').hidden = true; $('adm-list-box').hidden = false; $('adm-app').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 
     async function save(e) {
       e.preventDefault();
@@ -170,15 +189,16 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
         tags: v('tags').split(',').map((t) => t.trim()).filter(Boolean), draft: v('status') === 'draft' };
       let slug = editing ? editing.slug : slugify(v('slug') || title);
       if (!editing) { const taken = new Set(posts.map((p) => p.slug)); let s = slug, n = 2; while (taken.has(s)) s = `${slug}-${n++}`; slug = s; }
-      $('adm-save').disabled = true;
+      const btn = $('adm-save'), err = $('adm-save-err');
+      err.textContent = ''; btn.disabled = true; btn.textContent = 'Saving…';
       try {
         await gh(`${DIR}/${slug}.md`, { method: 'PUT', body: JSON.stringify({
           message: `${editing ? 'Update' : 'Add'} post: ${title}`, branch: BRANCH,
           content: toB64(enc.encode(serialize(data, v('body')))), ...(editing ? { sha: editing.sha } : {}) }) });
         note(`Saved “${title}”. The site updates in about 2 minutes.`);
         closeEditor(); await loadPosts();
-      } catch (x) { note(x.message, 'err'); }
-      finally { $('adm-save').disabled = false; }
+      } catch (x) { if (!x.shown) { err.textContent = x.message; note(x.message, 'err'); } }
+      finally { btn.disabled = false; btn.textContent = 'Save'; }
     }
 
     async function remove(p) {
@@ -186,14 +206,20 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
       try {
         await gh(p.path, { method: 'DELETE', body: JSON.stringify({ message: `Delete post: ${p.data.title || p.slug}`, sha: p.sha, branch: BRANCH }) });
         note(`Deleted “${p.data.title || p.slug}”. The site updates in about 2 minutes.`); await loadPosts();
-      } catch (x) { note(x.message, 'err'); }
+      } catch (x) { if (!x.shown) { note(x.message, 'err'); $('adm-msg').scrollIntoView({ behavior: 'smooth', block: 'center' }); } }
     }
 
     async function showApp() {
       $('adm-login').hidden = true; $('adm-app').hidden = false; $('adm-who').textContent = session.user;
-      try { await loadPosts(); } catch (x) { note(x.message, 'err'); }
+      document.dispatchEvent(new Event('adm:session')); // header: avatar + log out
+      try { await loadPosts(); } catch (x) { if (!x.shown) note(x.message, 'err'); }
     }
-    function logout() { session = null; store.set(null); note(''); closeEditor(); $('adm-app').hidden = true; $('adm-login').hidden = false; }
+    // back to the login form; `why` explains it there (the app, and its note, are hidden now)
+    function logout(why = '') {
+      session = null; store.set(null); note(''); closeEditor();
+      $('adm-app').hidden = true; $('adm-login').hidden = false; $('adm-token-err').textContent = why;
+      document.dispatchEvent(new Event('adm:session'));
+    }
 
     async function login(form, errId, attempt) {
       const btn = form.querySelector('button[type=submit]'), err = $(errId);
@@ -206,7 +232,8 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
       const s = await tokenLogin(f.elements.token.value.trim()); store.set(s, f.elements.remember.checked); return s; }); });
     $('adm-login-form').addEventListener('submit', (e) => { e.preventDefault(); login(e.currentTarget, 'adm-login-err', async (f) => {
       const s = await unlock(f.elements.user.value.trim(), f.elements.pass.value); store.set(s); return s; }); });
-    $('adm-out').addEventListener('click', logout);
+    $('adm-out').addEventListener('click', () => logout());
+    document.addEventListener('adm:signout', () => { if (session) logout(); }); // the header's log-out button
     $('adm-new').addEventListener('click', () => { note(''); openEditor(null); });
     $('adm-cancel').addEventListener('click', closeEditor);
     $('adm-editor').addEventListener('submit', save);

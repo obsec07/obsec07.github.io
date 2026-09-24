@@ -72,19 +72,28 @@ The address comes from the GitHub account name: `https://<account>.github.io/<re
 `obsec07.github.io/secblog`. Rename the repo to `<account>.github.io` to drop the `/secblog` part, or add a
 custom domain under Settings → Pages. The workflow picks up the right URL and path automatically.
 
-**Writing posts on the Pages site: `/admin`.** Log in with your admin username and password to write,
-edit and delete posts. Each save is a commit to `main`, and the site redeploys about 2 minutes later.
-A static site has no server to check passwords, so the Pages build encrypts a GitHub token with your
-username and password and publishes only the encrypted copy (`/admin/vault.json`). Logging in decrypts it
-in your browser. One-time setup:
+**Writing posts on the Pages site: `/admin`.** Click the log-in icon in the header, or open `/admin`, and
+paste a GitHub token. You can then write, edit and delete posts. Each save is a commit to `main`, and the
+site redeploys about 2 minutes later. While you're signed in, the header shows your avatar (→ `/admin`) and
+a log-out button.
 1. GitHub → Settings → Developer settings → **Fine-grained tokens** → *Generate new token*.
-   - Repository access: **Only select repositories** → this repo.
-   - Permissions: **Contents: Read and write**.
-2. In this repo: Settings → Secrets and variables → Actions → **Secrets** → add:
+   - Repository access: **Only select repositories** → this repo. The default, *Public repositories
+     (read-only)*, can't save anything.
+   - Permissions → Repository permissions → **Contents: Read and write**.
+2. Paste it into the **Access token** field on `/admin`. Tick *Keep me signed in* to stay logged in on that
+   device. The token stays in your browser and is only sent to GitHub.
+
+`/admin` checks the token before letting you in. If GitHub won't let it save, the page says what to
+change on the token. Never paste the token anywhere else.
+
+*Optional: username + password instead of the token.* The Pages build can encrypt the token with a
+username and password and publish only the encrypted copy (`/admin/vault.json`). A password form then
+appears under the token field and decrypts the token in your browser. To set it up:
+1. In this repo: Settings → Secrets and variables → Actions → **Secrets** → add:
    - `ADMIN_PASSWORD`: your admin password.
-   - `ADMIN_TOKEN`: the token from step 1.
-3. Optional: under **Variables**, add `ADMIN_USERNAME`. The default is `t0b!`.
-4. Actions → **Deploy to GitHub Pages** → Run workflow.
+   - `ADMIN_TOKEN`: a token made as above.
+2. Optional: under **Variables**, add `ADMIN_USERNAME`. The default is `t0b!`.
+3. Actions → **Deploy to GitHub Pages** → Run workflow.
 
 > Anyone can download the encrypted token and try passwords against it offline, so the password is what
 > protects it. Use a long passphrase. If the token leaks, someone can edit this repo's content (not its
