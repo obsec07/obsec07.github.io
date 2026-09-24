@@ -154,6 +154,10 @@ a:hover { text-decoration: underline; }
 .crumbs-box a:hover { color: var(--pink); text-decoration: none; }
 .crumbs-box .sep { color: var(--muted-2); }
 .crumbs-box .here { color: var(--ink); font-weight: 600; }
+/* breadcrumb targets on the home page (/#forums, /#blogs): land a little below the top edge, then flash */
+#forums, .section { scroll-margin-top: 16px; }
+.section.flash .section-head, #forums.flash > .section:first-child .section-head { animation: crumb-flash 1.4s ease; }
+@keyframes crumb-flash { 0%, 30% { background: var(--sub-bar); box-shadow: 0 0 0 2px var(--border-hi); } 100% { background: transparent; box-shadow: none; } }
 .thread { margin: 0 0 40px; }
 .thread-head h1 { font-family: var(--pixel); color: var(--ink); font-size: 30px; text-transform: uppercase; letter-spacing: .4px; margin: 6px 0 10px; line-height: 1.22; }
 .thread-by { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13.5px; margin-bottom: 18px; }
@@ -576,7 +580,10 @@ img.av { object-fit: cover; background: #12203a; border-radius: 50%; display: bl
 .adm-draft { font-family: var(--pixel); font-size: 10px; text-transform: uppercase; border: 1px solid var(--muted); color: var(--muted); border-radius: 2px; padding: 0 5px; margin-left: 6px; vertical-align: middle; }
 .adm-del:hover { border-color: #a4564f; color: #a4564f; }
 .adm-body { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13.5px; line-height: 1.5; }
-#adm-msg { margin: 0 0 14px; }
+#adm-msg, #adm-deploy { margin: 0 0 14px; }
+#adm-deploy a { margin-left: 6px; }
+.adm-spin { display: inline-block; width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: adm-spin .8s linear infinite; }
+@keyframes adm-spin { to { transform: rotate(360deg); } }
 #adm-editor { margin-bottom: 40px; }
 @media (max-width: 640px) {
   .frow { grid-template-columns: 1fr; }

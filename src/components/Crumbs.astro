@@ -1,0 +1,17 @@
+---
+// Breadcrumb bar, XenForo-style: Home › Forums › <section> › <category>. Every part links somewhere; only the page
+// you're on is plain text. Forums and the section jump to that spot of the forum list on the home page.
+import { SECTIONS, CATEGORY_LABELS, sectionId } from '../config';
+interface Props { category?: string; current?: boolean; }   // current: this is the category's own page
+const { category, current = false } = Astro.props;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const href = (p: string) => (base + p).replace(/\/{2,}/g, '/') || '/';
+const section = category ? SECTIONS.find((s) => s.items.some((i) => i.key === category)) : undefined;
+const label = category ? CATEGORY_LABELS[category] ?? category : '';
+---
+<nav class="crumbs-box" aria-label="Breadcrumb">
+  <a href={href('/')}>⌂ Home</a>
+  <span class="sep">›</span><a href={href('/#forums')}>Forums</a>
+  {section && <Fragment><span class="sep">›</span><a href={href('/#' + sectionId(section.title))}>{section.title}</a></Fragment>}
+  {category && <Fragment><span class="sep">›</span>{current ? <span class="here" aria-current="page">{label}</span> : <a href={href('/' + category)}>{label}</a>}</Fragment>}
+</nav>

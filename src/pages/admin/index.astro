@@ -7,17 +7,19 @@
 // Posts are then listed, written and deleted through the GitHub API; every save is a commit to `main`, which redeploys
 // the site. The Node server has its own /login + /admin-panel instead.
 import Base from '../../layouts/Base.astro';
-import { STATIC_SITE } from '../../config';
+import { SITE, STATIC_SITE, profileUrl } from '../../config';
 import { CATEGORIES } from '../../content.config';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
+// pages not in the sitemap that still show posts; refreshed in the browser after a change goes live
+const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${base}/rss.xml`];
 ---
 <Base title="Admin" noindex>
   <div class="page-head"><h1>Admin</h1></div>
   {!STATIC_SITE ? (
     <div class="acct-empty">This server has its own admin: <a href="/login">log in</a>, then open the admin panel.</div>
   ) : (
-    <div id="adm" data-repo={repo} data-vault={`${base}/admin/vault.json`}>
+    <div id="adm" data-repo={repo} data-vault={`${base}/admin/vault.json`} data-base={base} data-extra={JSON.stringify(extraPages)}>
       <section id="adm-login">
         <form class="acct-form adm-login" id="adm-token-form">
           <div class="frow"><div class="lab">Access token</div><div class="fld">
@@ -41,6 +43,7 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
           <span class="adm-actions"><button class="save-btn" id="adm-new" type="button">+ New post</button><button class="save-btn" id="adm-out" type="button">Log out</button></span>
         </div>
         <div id="adm-msg" class="acct-note" hidden></div>
+        <div id="adm-deploy" class="acct-note" role="status" hidden></div>
         <div class="threadlist" id="adm-list-box">
           <div class="tl-head"><span id="adm-count">Posts</span></div>
           <div id="adm-list"><div class="tl-empty">Loading…</div></div>
@@ -66,7 +69,8 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
 
   const root = document.getElementById('adm');
   if (root) {
-    const REPO = root.dataset.repo, VAULT = root.dataset.vault, DIR = 'src/content/posts', BRANCH = 'main';
+    const REPO = root.dataset.repo, VAULT = root.dataset.vault, BASE = root.dataset.base, DIR = 'src/content/posts', BRANCH = 'main';
+    const EXTRA_PAGES = JSON.parse(root.dataset.extra || '[]');
     const API = `https://api.github.com/repos/${REPO}/contents/`;
     const $ = (id) => document.getElementById(id);
     const enc = new TextEncoder(), dec = new TextDecoder();
@@ -77,6 +81,7 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
     const today = () => new Date().toISOString().slice(0, 10);
     const slugify = (s) => String(s).trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80) || 'post';
     let session = null, posts = [], editing = null;
+    const gone = new Set();   // paths deleted in this session
 
     // signed-in session: this tab only, or this device when "keep me signed in" is ticked
     const store = {
@@ -149,10 +154,11 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
     async function loadPosts() {
       $('adm-list').innerHTML = '<div class="tl-empty">Loading…</div>';
       const files = ((await gh(`${DIR}?ref=${BRANCH}`)) || []).filter((f) => f.type === 'file' && f.name.endsWith('.md'));
-      posts = await Promise.all(files.map(async (f) => {
+      posts = (await Promise.all(files.map(async (f) => {
+        if (gone.has(f.path)) return null;   // just deleted: GitHub's listing can lag a moment behind
         const full = await gh(`${f.path}?ref=${BRANCH}`);
-        return { slug: f.name.replace(/\.md$/, ''), path: f.path, sha: full.sha, ...parse(dec.decode(fromB64(full.content))) };
-      }));
+        return full && { slug: f.name.replace(/\.md$/, ''), path: f.path, sha: full.sha, ...parse(dec.decode(fromB64(full.content))) };
+      }))).filter(Boolean);
       posts.sort((a, b) => isoDate(b.data.date).localeCompare(isoDate(a.data.date)));
       $('adm-count').textContent = `Posts (${posts.length})`;
       $('adm-list').innerHTML = posts.length ? posts.map((p, i) => `
@@ -192,10 +198,12 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
       const btn = $('adm-save'), err = $('adm-save-err');
       err.textContent = ''; btn.disabled = true; btn.textContent = 'Saving…';
       try {
-        await gh(`${DIR}/${slug}.md`, { method: 'PUT', body: JSON.stringify({
+        const res = await gh(`${DIR}/${slug}.md`, { method: 'PUT', body: JSON.stringify({
           message: `${editing ? 'Update' : 'Add'} post: ${title}`, branch: BRANCH,
           content: toB64(enc.encode(serialize(data, v('body')))), ...(editing ? { sha: editing.sha } : {}) }) });
-        note(`Saved “${title}”. The site updates in about 2 minutes.`);
+        gone.delete(`${DIR}/${slug}.md`);
+        note(`Saved “${title}”.`);
+        followDeploy(res && res.commit && res.commit.sha, `“${title}”`, slug, !data.draft);
         closeEditor(); await loadPosts();
       } catch (x) { if (!x.shown) { err.textContent = x.message; note(x.message, 'err'); } }
       finally { btn.disabled = false; btn.textContent = 'Save'; }
@@ -204,9 +212,64 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
     async function remove(p) {
       if (!confirm(`Delete “${p.data.title || p.slug}”? It will disappear from the site.`)) return;
       try {
-        await gh(p.path, { method: 'DELETE', body: JSON.stringify({ message: `Delete post: ${p.data.title || p.slug}`, sha: p.sha, branch: BRANCH }) });
-        note(`Deleted “${p.data.title || p.slug}”. The site updates in about 2 minutes.`); await loadPosts();
+        const res = await gh(p.path, { method: 'DELETE', body: JSON.stringify({ message: `Delete post: ${p.data.title || p.slug}`, sha: p.sha, branch: BRANCH }) });
+        gone.add(p.path);
+        note(`Deleted “${p.data.title || p.slug}”.`);
+        followDeploy(res && res.commit && res.commit.sha, `The delete of “${p.data.title || p.slug}”`, p.slug, false);
+        await loadPosts();
       } catch (x) { if (!x.shown) { note(x.message, 'err'); $('adm-msg').scrollIntoView({ behavior: 'smooth', block: 'center' }); } }
+    }
+
+    // After a save: follow the GitHub Pages deploy for that commit, then refresh this browser's copies of the site's
+    // pages. GitHub Pages lets browsers keep a page for 10 minutes, so without this you'd keep seeing the old version
+    // (e.g. a deleted post still listed) while clicking around. Everyone else sees the change within those 10 minutes.
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const sitePage = (p) => (BASE + p).replace(/\/{2,}/g, '/');
+    let watching = 0, runsWithToken = true;
+    async function deployRun(sha) {
+      const url = `https://api.github.com/repos/${REPO}/actions/runs?head_sha=${sha}&per_page=20`;
+      const get = (token) => fetch(url, { cache: 'no-store', headers: { Accept: 'application/vnd.github+json', ...(token ? { Authorization: `Bearer ${token}` } : {}) } });
+      let r = runsWithToken && session ? await get(session.token) : null;
+      // a token with only Contents access may not read Actions; the runs of a public repo are readable without it
+      if (!r || !r.ok) { if (r) runsWithToken = false; r = await get(null); }
+      if (!r.ok) throw new Error(`GitHub ${r.status}`);
+      return ((await r.json()).workflow_runs || []).find((w) => /pages\.ya?ml$/.test(w.path || '')) || null;
+    }
+    async function refreshSite(slug) {
+      const paths = new Set([sitePage('/'), ...EXTRA_PAGES]);
+      if (slug) { paths.add(sitePage(`/posts/${slug}/`)); paths.add(sitePage(`/posts/${slug}`)); }
+      const locs = async (url) => [...(await (await fetch(url, { cache: 'reload' })).text()).matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => new URL(m[1], location.href).pathname);
+      try { for (const sm of await locs(sitePage('/sitemap-index.xml'))) (await locs(sm)).forEach((p) => paths.add(p)); } catch {}
+      const list = [...paths];
+      await Promise.all(Array.from({ length: 6 }, async () => { while (list.length) { try { await fetch(list.shift(), { cache: 'reload' }); } catch {} } }));
+    }
+    async function followDeploy(sha, what, slug, published) {
+      const id = ++watching, box = $('adm-deploy'), current = () => id === watching;
+      const show = (html, kind = 'ok') => { if (!current()) return; box.innerHTML = html; box.className = `acct-note ${kind}`; box.hidden = false; };
+      const oldCopy = 'If a page still shows the old version, press Ctrl+F5 (Cmd+Shift+R on a Mac).';
+      if (!sha) { show(`${esc(what)} goes live on the site in about a minute. ${oldCopy}`); return; }
+      show(`<span class="adm-spin" aria-hidden="true"></span>Publishing ${esc(what)} to the site… (usually under a minute)`);
+      let run = null, errors = 0;
+      const t0 = Date.now();
+      for (;;) {
+        await sleep(5000);
+        if (!current()) return;   // a newer save is being followed now
+        try { run = (await deployRun(sha)) || run; errors = 0; } catch { errors++; }
+        if (run && run.status === 'completed') break;
+        const waited = Date.now() - t0;
+        if (errors >= 3 || (!run && waited > 90e3) || waited > 8 * 60e3) {   // can't follow it from here
+          const link = run ? ` <a href="${esc(run.html_url)}" target="_blank" rel="noopener">See the deploy</a>` : '';
+          show(`${esc(what)} is saved on GitHub; the site normally updates within a minute or two.${link} ${oldCopy}`);
+          await sleep(60e3); if (current()) refreshSite(slug);
+          return;
+        }
+      }
+      const log = ` <a href="${esc(run.html_url)}" target="_blank" rel="noopener">Open the log</a>`;
+      if (run.conclusion === 'cancelled') return show(`That deploy was replaced by a newer one; ${esc(what)} goes live with it.`);
+      if (run.conclusion !== 'success') return show(`The site build failed, so ${esc(what)} isn't live yet.${log}`, 'err');
+      await sleep(1500); await refreshSite(slug);
+      const view = published ? ` <a href="${esc(sitePage(`/posts/${slug}/`))}">View post</a>` : '';
+      show(`✓ ${esc(what)} is live.${view} This browser shows the new version now; other visitors within 10 minutes.`);
     }
 
     async function showApp() {
@@ -216,7 +279,7 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
     }
     // back to the login form; `why` explains it there (the app, and its note, are hidden now)
     function logout(why = '') {
-      session = null; store.set(null); note(''); closeEditor();
+      session = null; store.set(null); note(''); closeEditor(); watching++; $('adm-deploy').hidden = true;
       $('adm-app').hidden = true; $('adm-login').hidden = false; $('adm-token-err').textContent = why;
       document.dispatchEvent(new Event('adm:session'));
     }

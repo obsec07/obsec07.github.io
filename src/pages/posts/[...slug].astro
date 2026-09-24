@@ -1,6 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro';
 import ShareBar from '../../components/ShareBar.astro';
+import Crumbs from '../../components/Crumbs.astro';
 import { getCollection, render } from 'astro:content';
 import { CATEGORY_LABELS, SITE, STATIC_SITE, OWNER_PROFILE, avatarUrl, profileAttrs, profileUrl } from '../../config';
 import { ownerStats } from '../../lib/owner';
@@ -20,12 +21,7 @@ const postUrl = new URL(href('/posts/' + post.id), Astro.site).href;
 const d = post.data.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 ---
 <Base title={post.data.title} description={post.data.description}>
-  <nav class="crumbs-box" aria-label="Breadcrumb">
-    <a href={href('/')}>⌂ Home</a>
-    <span class="sep">›</span><a href={href('/')}>Forums</a>
-    <span class="sep">›</span><a href={href('/')}>Blogs</a>
-    <span class="sep">›</span><span class="here">{label}</span>
-  </nav>
+  <Crumbs category={post.data.category} />
 
   <article class="thread">
     <header class="thread-head">
