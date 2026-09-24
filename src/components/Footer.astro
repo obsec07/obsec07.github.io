@@ -1,5 +1,5 @@
 ---
-import { SITE, CATEGORY_LABELS } from '../config';
+import { SITE, CATEGORY_LABELS, STATIC_SITE, avatarUrl, profileAttrs } from '../config';
 import { getCollection } from 'astro:content';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const href = (p: string) => (base + p).replace(/\/{2,}/g, '/') || '/';
@@ -27,7 +27,7 @@ const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'n
         <ul class="foot-posts">
           {posts.map((p) => (
             <li>
-              <img class="av" src={`/avatar/${encodeURIComponent(SITE.handle)}`} data-uprofile={SITE.handle} alt="" width="34" height="34" loading="lazy" />
+              <img class="av" src={avatarUrl(SITE.handle)} {...profileAttrs(SITE.handle)} alt="" width="34" height="34" loading="lazy" />
               <div>
                 <a href={href('/posts/' + p.id)}>{p.data.title}</a>
                 <div class="m">Latest: {SITE.handle} · {fmt(p.data.date)}</div>
@@ -38,10 +38,12 @@ const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'n
         </ul>
       </div>
 
-      <div class="foot-col foot-members">
-        <h4>Newest members</h4>
-        <div class="foot-member-list"><!--MEMBERS_SLOT--></div>
-      </div>
+      {!STATIC_SITE && (
+        <div class="foot-col foot-members">
+          <h4>Newest members</h4>
+          <div class="foot-member-list"><Fragment set:html={'<!--MEMBERS_SLOT-->'} /></div>
+        </div>
+      )}
 
       <div class="foot-col foot-social">
         <h4>Stay connected</h4>

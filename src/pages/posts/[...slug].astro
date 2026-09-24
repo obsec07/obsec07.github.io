@@ -1,7 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro';
 import { getCollection, render } from 'astro:content';
-import { CATEGORY_LABELS, SITE } from '../../config';
+import { CATEGORY_LABELS, SITE, STATIC_SITE } from '../../config';
 
 export async function getStaticPaths() {
   const posts = await getCollection('posts', ({ data }) => !data.draft);
@@ -54,8 +54,8 @@ const d = post.data.date.toLocaleDateString('en-US', { month: 'short', day: 'num
         <Content />
       </div>
     </div>
-    <div class="author-card"><!--AUTHORCARD--></div>
+    {!STATIC_SITE && <div class="author-card"><Fragment set:html={'<!--AUTHORCARD-->'} /></div>}
   </article>
 
-  <section class="comments"><!--COMMENTS_SLOT--></section>
+  {!STATIC_SITE && <section class="comments"><Fragment set:html={'<!--COMMENTS_SLOT-->'} /></section>}
 </Base>
