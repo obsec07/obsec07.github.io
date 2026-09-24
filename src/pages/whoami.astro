@@ -6,9 +6,8 @@ import { fmtDate } from '../lib/owner';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const href = (p: string) => (base + p).replace(/\/{2,}/g, '/') || '/';
 const pageUrl = new URL(href('/whoami'), Astro.site).href;
-// display forms of the social links: @handle for X, github.com/<user> for GitHub
-const xHandle = '@' + SITE.socials.twitter.replace(/\/+$/, '').split('/').pop();
-const ghShort = SITE.socials.github.replace(/^https?:\/\/(www\.)?/, '').replace(/\/+$/, '');
+// social links shown as their short form (host + handle), no scheme
+const short = (u: string) => u.replace(/^https?:\/\/(www\.)?/, '').replace(/\/+$/, '');
 ---
 <Base title="Who Am I">
   <article class="whoami">
@@ -29,8 +28,9 @@ const ghShort = SITE.socials.github.replace(/^https?:\/\/(www\.)?/, '').replace(
       <p>Feel free to connect with me:</p>
       <ul>
         <li>Email: <a href={`mailto:${SITE.email}`}>{SITE.email}</a></li>
-        <li>X: <a href={SITE.socials.twitter}>{xHandle}</a></li>
-        <li>GitHub: <a href={SITE.socials.github}>{ghShort}</a></li>
+        <li>GitHub: <a href={SITE.socials.github}>{short(SITE.socials.github)}</a></li>
+        <li>Medium: <a href={SITE.socials.medium}>{short(SITE.socials.medium)}</a></li>
+        <li>Instagram: <a href={SITE.socials.instagram}>{short(SITE.socials.instagram)}</a></li>
       </ul>
     </div>
     <div class="whoami-meta"><span>Published:</span> {fmtDate(new Date(OWNER_PROFILE.joined))}</div>
