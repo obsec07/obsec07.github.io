@@ -3,8 +3,9 @@ import '../styles/global.css';
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
 import { SITE, STATIC_SITE } from '../config';
-interface Props { title?: string; description?: string; }
-const { title, description } = Astro.props;
+import ProfileCard from '../components/ProfileCard.astro';
+interface Props { title?: string; description?: string; noindex?: boolean; }
+const { title, description, noindex = false } = Astro.props;
 const pageTitle = title ? `${title} · ${SITE.handle}` : SITE.title;
 const desc = description || SITE.description;
 const favicon = "data:image/svg+xml," + encodeURIComponent(
@@ -20,6 +21,7 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{pageTitle}</title>
     <meta name="description" content={desc} />
+    {noindex && <meta name="robots" content="noindex" />}
     <meta property="og:title" content={pageTitle} />
     <meta property="og:description" content={desc} />
     <meta property="og:type" content="website" />
@@ -43,7 +45,7 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
         <a class="b" href={whoamiHref}>Learn more…</a>
       </div>
     </div>
-    {!STATIC_SITE && <div id="uprofile-host"><Fragment set:html={'<!--UPROFILE-->'} /></div>}
+    <div id="uprofile-host">{STATIC_SITE ? <ProfileCard /> : <Fragment set:html={'<!--UPROFILE-->'} />}</div>
     <script is:inline>
       (function () {
         try {
@@ -85,7 +87,10 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
           });
           el.addEventListener('mouseleave', function () { clearTimeout(showT); scheduleHide(); });
           el.style.cursor = 'pointer';
-          el.addEventListener('click', function () { location.href = '/members/' + encodeURIComponent(key); });
+          el.addEventListener('click', function () {
+            var card = host.querySelector('.uprofile[data-user="' + key + '"]');
+            location.href = (card && card.getAttribute('data-href')) || '/members/' + encodeURIComponent(key);
+          });
         });
       })();
     </script>

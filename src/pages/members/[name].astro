@@ -1,0 +1,112 @@
+---
+// Owner profile page on the static site (/members/<handle>/). The Node server renders /members/:name itself from
+// its account database, so nothing is generated here for server builds.
+import Base from '../../layouts/Base.astro';
+import PostCard from '../../components/PostCard.astro';
+import { SITE, OWNER_PROFILE, CATEGORY_LABELS, STATIC_SITE, avatarUrl } from '../../config';
+import { ownerStats, fmtDate } from '../../lib/owner';
+
+export function getStaticPaths() {
+  return STATIC_SITE ? [{ params: { name: SITE.handle.toLowerCase() } }] : [];
+}
+const s = await ownerStats();
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const href = (p: string) => (base + p).replace(/\/{2,}/g, '/') || '/';
+const tabs = [['profile-posts', 'Profile posts'], ['activity', 'Latest activity'], ['postings', 'Postings'], ['about', 'About']];
+---
+<Base title={SITE.handle}>
+  <nav class="crumbs-box" aria-label="Breadcrumb"><a href={href('/')}>⌂ Home</a></nav>
+
+  <section class="profile">
+    <img class="profile-av" src={avatarUrl(SITE.handle)} alt={SITE.handle} width="165" height="165" />
+    <div class="profile-band">
+      <h1 class="profile-name">{SITE.handle}</h1>
+      <div class="mc-badges"><span class="mc-badge">Staff member</span><span class="mc-badge">Member</span></div>
+      <div class="mc-role">{OWNER_PROFILE.role}</div>
+      <div class="mc-since"><span>Joined:</span> {s.joined}</div>
+      {s.latest && (
+        <div class="mc-since"><span>Latest post:</span> {fmtDate(s.latest.data.date)} · <a href={href('/posts/' + s.latest.id)}><i>{s.latest.data.title}</i></a></div>
+      )}
+    </div>
+    <div class="profile-body">
+      <div class="profile-stats">
+        <div><span>Messages</span><b>{s.messages}</b></div>
+        <div><span>Reaction score</span><b>{s.reactions}</b></div>
+        <div><span>Points</span><b>{s.points}</b></div>
+      </div>
+      <div class="nav-item profile-find">
+        <button class="find-btn" type="button" aria-haspopup="true">Find <span class="caret">▾</span></button>
+        <div class="dropdown">
+          <a href={href('/whats-new')}>Find all content by {SITE.handle}</a>
+          <a href={href('/search')}>Search {SITE.handle}'s posts</a>
+        </div>
+      </div>
+    </div>
+    <div class="profile-tabs" role="tablist">
+      {tabs.map(([k, l]) => <button type="button" role="tab" data-tab={k} class={k === 'about' ? 'on' : ''}>{l}</button>)}
+    </div>
+  </section>
+
+  <section class="profile-pane" data-pane="profile-posts" hidden>
+    <div class="profile-box muted-box">There are no messages on {SITE.handle}'s profile yet.</div>
+  </section>
+
+  <section class="profile-pane" data-pane="activity" hidden>
+    <ul class="activity">
+      {s.posts.slice(0, 20).map((p) => (
+        <li>
+          <img class="av" src={avatarUrl(SITE.handle)} alt="" width="32" height="32" />
+          <div>
+            <div>{SITE.handle} posted the thread <a href={href('/posts/' + p.id)}>{p.data.title}</a> in <a class="cat-link" href={href('/' + p.data.category)}>{CATEGORY_LABELS[p.data.category] ?? p.data.category}</a>.</div>
+            {p.data.description && <div class="activity-desc">{p.data.description}</div>}
+            <div class="activity-date">{fmtDate(p.data.date)}</div>
+          </div>
+        </li>
+      ))}
+    </ul>
+  </section>
+
+  <section class="profile-pane" data-pane="postings" hidden>
+    <ul class="posts">
+      {s.posts.map((p) => <PostCard slug={p.id} title={p.data.title} date={p.data.date} category={p.data.category} description={p.data.description} tags={p.data.tags} />)}
+    </ul>
+  </section>
+
+  <section class="profile-pane" data-pane="about">
+    <div class="profile-box">
+      <p class="about-text">{OWNER_PROFILE.about}</p>
+      <dl class="about-links">
+        <div><dt>Twitter</dt><dd><a href={SITE.socials.twitter}>{SITE.socials.twitter}</a></dd></div>
+        <div><dt>GitHub</dt><dd><a href={SITE.socials.github}>{SITE.socials.github}</a></dd></div>
+        <div><dt>Email</dt><dd><a href={`mailto:${SITE.email}`}>{SITE.email}</a></dd></div>
+      </dl>
+    </div>
+    <div class="profile-box">
+      <h3>Trophies</h3>
+      {s.trophies.length === 0 ? <p class="muted-box">No trophies yet.</p> : (
+        <ol class="trophies">
+          {s.trophies.map((t) => (
+            <li>
+              <span class="tr-points">{t.points}</span>
+              <div class="tr-main"><div class="tr-title">{t.title}</div><div class="tr-desc">{t.desc}</div></div>
+              <span class="tr-date">{fmtDate(t.date)}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  </section>
+
+  <script is:inline>
+    (function () {
+      var tabs = document.querySelectorAll('.profile-tabs [data-tab]');
+      function show(k) {
+        tabs.forEach(function (t) { t.classList.toggle('on', t.getAttribute('data-tab') === k); t.setAttribute('aria-selected', t.getAttribute('data-tab') === k); });
+        document.querySelectorAll('.profile-pane').forEach(function (p) { p.hidden = p.getAttribute('data-pane') !== k; });
+      }
+      tabs.forEach(function (t) { t.addEventListener('click', function () { show(t.getAttribute('data-tab')); history.replaceState(null, '', '#' + t.getAttribute('data-tab')); }); });
+      var h = location.hash.slice(1);
+      if (h && document.querySelector('.profile-pane[data-pane="' + h + '"]')) show(h);
+    })();
+  </script>
+</Base>

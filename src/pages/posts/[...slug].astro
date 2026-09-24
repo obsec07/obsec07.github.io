@@ -1,7 +1,9 @@
 ---
 import Base from '../../layouts/Base.astro';
 import { getCollection, render } from 'astro:content';
-import { CATEGORY_LABELS, SITE, STATIC_SITE } from '../../config';
+import { CATEGORY_LABELS, SITE, STATIC_SITE, OWNER_PROFILE, avatarUrl, profileAttrs, profileUrl } from '../../config';
+import { ownerStats } from '../../lib/owner';
+const owner = STATIC_SITE ? await ownerStats() : null;
 
 export async function getStaticPaths() {
   const posts = await getCollection('posts', ({ data }) => !data.draft);
@@ -54,7 +56,16 @@ const d = post.data.date.toLocaleDateString('en-US', { month: 'short', day: 'num
         <Content />
       </div>
     </div>
-    {!STATIC_SITE && <div class="author-card"><Fragment set:html={'<!--AUTHORCARD-->'} /></div>}
+    <div class="author-card">
+      {owner ? (
+        <div class="ac-inner">
+          <a href={profileUrl(SITE.handle)}><img class="ac-av" src={avatarUrl(SITE.handle)} {...profileAttrs(SITE.handle)} alt={SITE.handle} /></a>
+          <div class="ac-name"><a href={profileUrl(SITE.handle)}>{SITE.handle}</a> <span class="ac-role">{OWNER_PROFILE.role}</span></div>
+          <div class="ac-badges"><span class="ac-badge staff">Staff member</span><span class="ac-badge">Member</span></div>
+          <div class="ac-stats"><div><span>Messages</span><b>{owner.messages}</b></div><div><span>Reaction score</span><b>{owner.reactions}</b></div><div><span>Points</span><b>{owner.points}</b></div></div>
+        </div>
+      ) : <Fragment set:html={'<!--AUTHORCARD-->'} />}
+    </div>
   </article>
 
   {!STATIC_SITE && <section class="comments"><Fragment set:html={'<!--COMMENTS_SLOT-->'} /></section>}

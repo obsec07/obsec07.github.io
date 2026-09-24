@@ -241,7 +241,7 @@ app.get('/avatar/:name', (req, res) => {
     const comma = u.avatar.indexOf(','), mime = u.avatar.slice(5, u.avatar.indexOf(';'));
     return res.type(mime).send(Buffer.from(u.avatar.slice(comma + 1), 'base64'));
   }
-  res.sendFile(path.join(DIST, 'avatar.svg'));
+  res.sendFile(path.join(DIST, u && isAdminName(u.username) ? 'cat.svg' : 'avatar.svg'));   // the admin's default picture is the cat
 });
 // newest registered members (excludes the primary admin) — injected into the footer on every page
 function newestMembers() {
@@ -704,7 +704,7 @@ function accountPanel(u, tab, q = {}) {
   const post = canPost(u);
   const staff = isStaff(u);
   const postLabel = staff ? 'Can publish posts' : post ? 'Can submit for review' : 'Posting pending approval';
-  const av = u.avatar || '/avatar.svg';
+  const av = u.avatar || (isAdminName(u.username) ? '/cat.svg' : '/avatar.svg');
   const since = (() => { try { return new Date(u.created).toISOString().slice(0, 10); } catch { return ''; } })();
   const roleLabel = u.role.charAt(0).toUpperCase() + u.role.slice(1);
   const tabs = [['details', 'Account details'], ['security', 'Password & security']];
