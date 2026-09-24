@@ -26,6 +26,12 @@
 
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
+@view-transition { navigation: auto; }                     /* cross-fade between pages */
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .22s; }
+:where(a, button, input, select, textarea, summary, label) { transition: color .18s ease, background-color .18s ease, border-color .18s ease, box-shadow .18s ease, opacity .18s ease, transform .18s ease; }
+:where(button, .save-btn, .newposts-btn, .find-btn, .h-icon, .icon-btn):active { transform: translateY(1px); }
+@keyframes fade-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes slide-up { from { transform: translateY(100%); } to { transform: none; } }
 body {
   margin: 0; background: var(--bg); color: var(--ink-soft);
   font-family: var(--body); font-size: 15.5px; line-height: 1.6;
@@ -81,6 +87,8 @@ a:hover { text-decoration: underline; }
 
 /* ---- forum category rows ---- */
 .rows { display: flex; flex-direction: column; gap: 10px; }
+.section .rows { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .32s ease, opacity .25s ease; }
+.rows-inner { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: hidden; padding: 4px 6px 6px 4px; margin: -4px -6px -6px -4px; }
 .row {
   display: flex; align-items: center; gap: 15px;
   background: var(--card); border: 1px solid var(--border);
@@ -97,7 +105,7 @@ a:hover { text-decoration: underline; }
 .section-head { cursor: pointer; user-select: none; }
 .section-head .chev { transition: transform .2s; display: grid; place-items: center; width: 28px; height: 28px; }
 .section.collapsed .chev { transform: rotate(180deg); }
-.section.collapsed .rows { display: none; }
+.section.collapsed .rows { grid-template-rows: 0fr; opacity: 0; }
 .row .icon svg { width: 24px; height: 24px; }
 .row .main { flex: 1 1 auto; min-width: 0; }
 .row .main .ctitle { font-family: var(--pixel); color: var(--ink); font-size: 14px; letter-spacing: 0; text-transform: uppercase; display: inline-flex; align-items: center; gap: 9px; }
@@ -200,7 +208,7 @@ a:hover { text-decoration: underline; }
 
 /* hover profile card (member tooltip) */
 [data-uprofile] { cursor: pointer; }
-.uprofile { position: absolute; z-index: 200; width: 330px; background: var(--card); border: 1px solid var(--border-hi); border-radius: 12px; box-shadow: 0 18px 44px rgba(18,32,58,.22); overflow: hidden; visibility: hidden; opacity: 0; transform: translateY(8px) scale(.98); transform-origin: top left; transition: opacity .18s ease, transform .18s ease, visibility .18s; }
+.uprofile { position: absolute; z-index: 200; width: 330px; background: var(--card); border: 1px solid var(--border-hi); border-radius: 12px; box-shadow: 0 18px 44px rgba(18,32,58,.22); overflow: hidden; visibility: hidden; opacity: 0; transform: translateY(8px) scale(.98); transform-origin: top left; transition: opacity .12s ease, transform .12s ease, visibility .12s; }
 .uprofile.show { visibility: visible; opacity: 1; transform: translateY(0) scale(1); }
 .up-top { display: flex; gap: 14px; padding: 16px 18px; background: var(--sub-bar); }
 .up-av { width: 66px; height: 66px; border-radius: 50%; object-fit: cover; flex: 0 0 66px; background: var(--sub-bar); }
@@ -268,8 +276,9 @@ a:hover { text-decoration: underline; }
 /* ---- nav dropdowns ---- */
 .nav-item { position: relative; }
 .nav-item > a .caret { font-size: 10px; opacity: .6; margin-left: 4px; }
-.dropdown { position: absolute; top: 100%; left: -8px; min-width: 200px; background: var(--card); border: 1px solid var(--border-hi); border-radius: 10px; box-shadow: 0 12px 30px rgba(18,32,58,.16); padding: 6px; display: none; z-index: 40; }
-.nav-item:hover .dropdown, .nav-item:focus-within .dropdown { display: block; }
+.dropdown { position: absolute; top: 100%; left: -8px; min-width: 200px; background: var(--card); border: 1px solid var(--border-hi); border-radius: 10px; box-shadow: 0 12px 30px rgba(18,32,58,.16); padding: 6px; z-index: 40;
+  opacity: 0; visibility: hidden; transform: translateY(6px); pointer-events: none; transition: opacity .18s ease, transform .18s ease, visibility .18s; }
+.nav-item:hover .dropdown, .nav-item:focus-within .dropdown { opacity: 1; visibility: visible; transform: none; pointer-events: auto; }
 .dropdown a { display: block; padding: 8px 12px; border-radius: 7px; color: var(--ink); font-family: var(--body); font-weight: 500; font-size: 14.5px; }
 .dropdown a:hover { background: var(--sub-bar); color: var(--pink); text-decoration: none; }
 
@@ -414,13 +423,15 @@ img[data-uprofile]:hover { box-shadow: 0 0 0 2px var(--ink); }
 .fstats div { display: flex; justify-content: space-between; gap: 12px; padding: 1px 0; }
 .fstats dt { color: var(--muted); }
 .fstats dd { margin: 0; color: var(--ink); text-align: right; }
-.share { display: flex; gap: 14px; align-items: center; }
-.share a, .share button { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; background: none; color: var(--muted); cursor: pointer; }
-.share a:hover, .share button:hover { color: var(--ink); }
+.share { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.share-label { color: var(--muted); font-size: 14px; margin-right: 6px; }
+/* each network lights up in its own colour on hover (--brand set per link) */
+.share a, .share button { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 3px; background: none; color: var(--muted); cursor: pointer; transition: background .12s, color .12s; }
+.share a:hover, .share button:hover, .share a:focus-visible, .share button:focus-visible { background: var(--brand, var(--ink)); color: #fff; }
 .share svg { width: 18px; height: 18px; }
 
 /* ---- cookie banner ---- */
-.cookie { position: fixed; left: 0; right: 0; bottom: 0; background: rgba(250,246,241,.97); border-top: 1px solid var(--border); backdrop-filter: blur(4px); padding: 18px; text-align: center; z-index: 60; }
+.cookie { position: fixed; left: 0; right: 0; bottom: 0; background: rgba(250,246,241,.97); border-top: 1px solid var(--border); backdrop-filter: blur(4px); padding: 18px; text-align: center; z-index: 60; animation: slide-up .35s ease both; }
 .cookie p { margin: 0 0 12px; color: var(--ink-soft); font-size: 14.5px; }
 .cookie .btns { display: flex; gap: 10px; justify-content: center; }
 .cookie .b { font-family: var(--body); font-weight: 700; border: 1px solid var(--border-hi); background: var(--card); color: var(--ink); border-radius: 6px; padding: 8px 18px; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
@@ -549,4 +560,26 @@ img.av { object-fit: cover; background: #12203a; border-radius: 50%; display: bl
   .frow { grid-template-columns: 1fr; }
   .frow .lab { text-align: left; padding: 10px 16px 4px; }
   .adm-row { flex-direction: column; align-items: flex-start; }
+}
+
+/* ---- Who Am I (0x90 layout) ---- */
+.whoami { background: var(--card); border: 1px solid var(--border-hi); box-shadow: var(--shadow); padding: 26px 32px 18px; margin: 26px 0 40px; }
+.whoami h1 { font-family: var(--pixel); font-weight: 400; font-size: 32px; text-transform: uppercase; color: var(--ink); text-align: center; margin: 0 0 18px; }
+.whoami-av { display: block; width: 170px; height: 170px; margin: 0 auto 22px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 3px var(--card), 0 0 0 4px var(--border-hi); }
+.whoami .prose { font-size: 15.5px; text-align: justify; }
+.whoami .prose p { margin: 12px 0; }
+.whoami .prose ul { margin: 6px 0 16px; text-align: left; }
+.whoami .prose a { text-decoration: none; color: var(--link); }
+.whoami-meta { color: var(--ink-soft); font-size: 14px; margin: 20px 0 10px; }
+.whoami-meta span { color: var(--muted); }
+@media (max-width: 640px) { .whoami { padding: 20px 18px 14px; } .whoami h1 { font-size: 26px; } .whoami .prose { text-align: left; } }
+
+/* ---- smooth everywhere: panels, tabs and forms fade in when they open ---- */
+main.wrap { animation: fade-up .28s ease both; }                       /* page content on load */
+.profile-pane:not([hidden]), #adm-login:not([hidden]), #adm-app:not([hidden]), #adm-editor:not([hidden]),
+#adm-list-box:not([hidden]), #adm-msg:not([hidden]), .acct-note { animation: fade-up .25s ease both; }
+img { transition: opacity .2s ease, box-shadow .15s ease; }
+@media (prefers-reduced-motion: reduce) {   /* respect people who turn animation off */
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+  @view-transition { navigation: none; }
 }

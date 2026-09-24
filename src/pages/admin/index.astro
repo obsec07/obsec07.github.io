@@ -127,9 +127,10 @@ const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
       f.elements.tags.value = p ? (p.data.tags || []).join(', ') : '';
       f.elements.status.value = p && p.data.draft ? 'draft' : 'published';
       f.elements.body.value = p ? p.body : '';
-      $('adm-list-box').hidden = true; f.hidden = false; f.elements.title.focus();
+      $('adm-list-box').hidden = true; f.hidden = false; f.elements.title.focus({ preventScroll: true });
+      $('adm-app').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-    function closeEditor() { editing = null; $('adm-editor').hidden = true; $('adm-list-box').hidden = false; }
+    function closeEditor() { editing = null; $('adm-editor').hidden = true; $('adm-list-box').hidden = false; $('adm-app').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 
     async function save(e) {
       e.preventDefault();

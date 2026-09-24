@@ -1,6 +1,7 @@
 ---
 import Base from '../layouts/Base.astro';
 import CategoryRow from '../components/CategoryRow.astro';
+import ShareBar from '../components/ShareBar.astro';
 import { SITE, SECTIONS, CATEGORY_LABELS, STATIC_SITE, avatarUrl, profileAttrs } from '../config';
 import { getCollection } from 'astro:content';
 
@@ -22,16 +23,7 @@ function forCat(key: string) {
 const latestPosts = all.slice(0, 5);
 
 // "Share this page" targets the public URL of the home page
-const pageUrl = encodeURIComponent(new URL(href('/'), Astro.site).href);
-const pageTitle = encodeURIComponent(SITE.title);
-const share = [
-  { label: 'Facebook', href: `https://www.facebook.com/sharer/sharer.php?u=${pageUrl}`, svg: '<path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/>' },
-  { label: 'X', href: `https://twitter.com/intent/tweet?url=${pageUrl}&text=${pageTitle}`, svg: '<path fill="currentColor" stroke="none" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24h-6.66l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231 5.45-6.231Zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77Z"/>' },
-  { label: 'Reddit', href: `https://www.reddit.com/submit?url=${pageUrl}&title=${pageTitle}`, svg: '<ellipse cx="12" cy="14.5" rx="8" ry="5.5"/><circle cx="18" cy="5" r="1.6"/><path d="M12 9l1.6-5.2 2.8.8M9.5 17c1.5.9 3.5.9 5 0"/><circle cx="9" cy="13.5" r=".8" fill="currentColor"/><circle cx="15" cy="13.5" r=".8" fill="currentColor"/>' },
-  { label: 'WhatsApp', href: `https://api.whatsapp.com/send?text=${pageTitle}%20${pageUrl}`, svg: '<path d="M21 11.5a8.4 8.4 0 0 1-12.3 7.4L3 21l1.9-5.7A8.5 8.5 0 1 1 21 11.5z"/>' },
-  { label: 'Email', href: `mailto:?subject=${pageTitle}&body=${pageUrl}`, svg: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>' },
-];
-const linkSvg = '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>';
+const pageUrl = new URL(href('/'), Astro.site).href;
 const chevron = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 15 12 9 18 15"/></svg>';
 ---
 <Base>
@@ -61,13 +53,13 @@ const chevron = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" str
             </div>
             <span class="chev" set:html={chevron} />
           </div>
-          <div class="rows">
+          <div class="rows"><div class="rows-inner">
             {sec.items.map((it) => {
               if (it.page) return <CategoryRow title={it.title} desc={it.desc} href={href(it.href!)} page={true} />;
               const s = forCat(it.key);
               return <CategoryRow title={it.title} desc={it.desc} href={href('/' + it.key)} count={s.count} isNew={s.isNew} latest={s.latest} unread={s.isNew} />;
             })}
-          </div>
+          </div></div>
         </div>
       ))}
     </div>
@@ -102,16 +94,7 @@ const chevron = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" str
 
       <div class="widget">
         <h3>Share this page</h3>
-        <div class="share">
-          {share.map((s) => (
-            <a href={s.href} title={s.label} aria-label={`share on ${s.label}`} target="_blank" rel="noopener noreferrer">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" set:html={s.svg} />
-            </a>
-          ))}
-          <button type="button" id="copy-link" title="Copy link" aria-label="copy link">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" set:html={linkSvg} />
-          </button>
-        </div>
+        <ShareBar url={pageUrl} title={SITE.title} />
       </div>
     </aside>
   </div>
@@ -122,10 +105,6 @@ const chevron = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" str
       if (b) b.addEventListener('click', function () {
         if (!document.fullscreenElement) document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
         else document.exitFullscreen && document.exitFullscreen();
-      });
-      var c = document.getElementById('copy-link');
-      if (c) c.addEventListener('click', function () {
-        if (navigator.clipboard) navigator.clipboard.writeText(location.href).then(function () { c.title = 'Copied!'; });
       });
       // collapsible sections (chevron toggles the rows)
       document.querySelectorAll('.section-head').forEach(function (h) {
