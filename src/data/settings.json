@@ -1,0 +1,29 @@
+{
+  "handle": "tobi",
+  "siteTitle": "tobi // security research",
+  "siteDescription": "Vulnerability research, CTF writeups, infosec notes and tool releases.",
+  "banner": "",
+  "email": "t0b1@proton.me",
+  "role": "Administrator",
+  "joined": "2026-08-06",
+  "about": "Security researcher. I hunt for bugs in web apps, play CTFs and write up the interesting ones here.",
+  "avatarVersion": "1",
+  "socials": {
+    "github": "https://github.com/obsec07",
+    "medium": "https://medium.com/@hirehyati.sardar07",
+    "instagram": "https://instagram.com/_.sardar07",
+    "linkedin": "",
+    "youtube": "",
+    "hackerone": "",
+    "bugcrowd": "",
+    "tryhackme": "",
+    "hackthebox": "",
+    "website": ""
+  },
+  "blogs": {
+    "0day": { "title": "0day Blog", "description": "All about my 0day findings & cve's." },
+    "ctf": { "title": "CTF Writeups", "description": "My CTF writeups for challenges which i considered interesting/enjoyable." },
+    "infosec": { "title": "InfoSec Blog", "description": "InfoSec related Blog." },
+    "tools": { "title": "Tools", "description": "InfoSec related tools." }
+  }
+}

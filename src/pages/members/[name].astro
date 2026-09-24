@@ -3,7 +3,7 @@
 // its account database, so nothing is generated here for server builds.
 import Base from '../../layouts/Base.astro';
 import PostCard from '../../components/PostCard.astro';
-import { SITE, OWNER_PROFILE, CATEGORY_LABELS, STATIC_SITE, avatarUrl } from '../../config';
+import { SITE, OWNER_PROFILE, CATEGORY_LABELS, STATIC_SITE, SOCIAL_LINKS, avatarUrl, shortUrl } from '../../config';
 import { ownerStats, fmtDate } from '../../lib/owner';
 
 export function getStaticPaths() {
@@ -74,12 +74,10 @@ const tabs = [['profile-posts', 'Profile posts'], ['activity', 'Latest activity'
 
   <section class="profile-pane" data-pane="about">
     <div class="profile-box">
-      <p class="about-text">{OWNER_PROFILE.about}</p>
+      {OWNER_PROFILE.about && <p class="about-text">{OWNER_PROFILE.about}</p>}
       <dl class="about-links">
-        <div><dt>GitHub</dt><dd><a href={SITE.socials.github}>{SITE.socials.github.replace(/^https?:\/\//, '')}</a></dd></div>
-        <div><dt>Medium</dt><dd><a href={SITE.socials.medium}>{SITE.socials.medium.replace(/^https?:\/\//, '')}</a></dd></div>
-        <div><dt>Instagram</dt><dd><a href={SITE.socials.instagram}>{SITE.socials.instagram.replace(/^https?:\/\//, '')}</a></dd></div>
-        <div><dt>Email</dt><dd><a href={`mailto:${SITE.email}`}>{SITE.email}</a></dd></div>
+        {SOCIAL_LINKS.map((n) => <div><dt>{n.label}</dt><dd><a href={n.url} rel="me noopener" target="_blank">{shortUrl(n.url)}</a></dd></div>)}
+        {SITE.email && <div><dt>Email</dt><dd><a href={`mailto:${SITE.email}`}>{SITE.email}</a></dd></div>}
       </dl>
     </div>
     <div class="profile-box">

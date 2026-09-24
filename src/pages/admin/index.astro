@@ -4,11 +4,13 @@
 //     stays in this browser and is only sent to GitHub;
 //   - username + password, if the ADMIN_PASSWORD / ADMIN_TOKEN secrets are set: the password decrypts the token sealed
 //     in /admin/vault.json (see vault.json.js).
-// Posts are then listed, written and deleted through the GitHub API; every save is a commit to `main`, which redeploys
-// the site. The Node server has its own /login + /admin-panel instead.
+// Tabs: Posts (write / edit / delete), Profile (username, photo, title, about, email, links) and Site (site name,
+// description, announcement, blog names, the Who Am I text). Everything goes through the GitHub API; every save is a
+// commit to `main`, which redeploys the site. The Node server has its own /login + /admin-panel instead.
 import Base from '../../layouts/Base.astro';
-import { SITE, STATIC_SITE, profileUrl } from '../../config';
-import { CATEGORIES } from '../../content.config';
+import { SITE, STATIC_SITE, CATEGORY_LABELS, profileUrl } from '../../config';
+import { CATEGORIES, LIMITS } from '../../lib/settings';
+import { SOCIAL_NETWORKS } from '../../lib/socials';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
 // pages not in the sitemap that still show posts; refreshed in the browser after a change goes live
@@ -23,8 +25,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       <section id="adm-login">
         <form class="acct-form adm-login" id="adm-token-form">
           <div class="frow"><div class="lab">Access token</div><div class="fld">
-            <input type="password" name="token" autocomplete="off" spellcheck="false" placeholder="github_pat_…" required />
-            <div class="hint">A GitHub fine-grained token: <b>Repository access → Only select repositories → {repo.split('/')[1]}</b>, and <b>Permissions → Contents → Read and write</b>. It stays in this browser and is only ever sent to GitHub.</div>
+            <input type="password" name="token" autocomplete="off" spellcheck="false" aria-label="Access token" required />
           </div></div>
           <div class="frow"><div class="lab"></div><div class="fld"><label class="adm-remember"><input type="checkbox" name="remember" /> Keep me signed in on this device</label></div></div>
           <div class="acct-actions"><span class="adm-err" id="adm-token-err" role="alert"></span><button class="save-btn" type="submit">Log in</button></div>
@@ -42,8 +43,14 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
           <span>Signed in as <b id="adm-who"></b></span>
           <span class="adm-actions"><button class="save-btn" id="adm-new" type="button">+ New post</button><button class="save-btn" id="adm-out" type="button">Log out</button></span>
         </div>
+        <div class="adm-tabs" role="tablist">
+          <button type="button" role="tab" data-tab="posts" class="on" aria-selected="true">Posts</button>
+          <button type="button" role="tab" data-tab="profile" aria-selected="false">Profile</button>
+          <button type="button" role="tab" data-tab="site" aria-selected="false">Site</button>
+        </div>
         <div id="adm-msg" class="acct-note" hidden></div>
         <div id="adm-deploy" class="acct-note" role="status" hidden></div>
+        <div class="adm-pane" data-pane="posts">
         <div class="threadlist" id="adm-list-box">
           <div class="tl-head"><span id="adm-count">Posts</span></div>
           <div id="adm-list"><div class="tl-empty">Loading…</div></div>
@@ -51,13 +58,50 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
         <form class="acct-form" id="adm-editor" hidden>
           <div class="frow"><div class="lab">Title</div><div class="fld"><input type="text" name="title" maxlength="200" required /></div></div>
           <div class="frow"><div class="lab">Slug</div><div class="fld"><input type="text" name="slug" placeholder="auto from title" /><div class="hint">The post's address: /posts/&lt;slug&gt;. Can't be changed after publishing.</div></div></div>
-          <div class="frow"><div class="lab">Category</div><div class="fld"><select name="category">{CATEGORIES.map((c) => <option value={c}>{c}</option>)}</select></div></div>
+          <div class="frow"><div class="lab">Category</div><div class="fld"><select name="category">{CATEGORIES.map((c) => <option value={c}>{CATEGORY_LABELS[c]}</option>)}</select></div></div>
           <div class="frow"><div class="lab">Date</div><div class="fld"><input type="date" name="date" required /></div></div>
           <div class="frow"><div class="lab">Description</div><div class="fld"><input type="text" name="description" maxlength="300" /><div class="hint">One-liner shown on the post lists.</div></div></div>
           <div class="frow"><div class="lab">Tags</div><div class="fld"><input type="text" name="tags" placeholder="htb, web, jwt" /></div></div>
           <div class="frow"><div class="lab">Status</div><div class="fld"><select name="status"><option value="published">Published</option><option value="draft">Draft (hidden)</option></select></div></div>
           <div class="frow"><div class="lab">Body</div><div class="fld"><textarea name="body" rows="20" class="adm-body" placeholder="Markdown…"></textarea></div></div>
           <div class="acct-actions"><span class="adm-err" id="adm-save-err" role="alert"></span><button class="save-btn" type="button" id="adm-cancel">Cancel</button> <button class="save-btn" type="submit" id="adm-save">Save</button></div>
+        </form>
+        </div>
+
+        <form class="acct-form adm-pane adm-settings" id="adm-profile" data-pane="profile" novalidate hidden>
+          <div class="frow"><div class="lab">Photo</div><div class="fld adm-photo">
+            <img id="adm-av" alt="Your photo" width="96" height="96" />
+            <div>
+              <label class="save-btn adm-file">Change photo<input type="file" name="photo" accept="image/*" /></label>
+              <div class="hint" id="adm-photo-hint">JPG, PNG or WebP. It's cropped to a square and resized to 320×320.</div>
+            </div>
+          </div></div>
+          <div class="frow"><div class="lab">Username</div><div class="fld"><input type="text" name="handle" maxlength="32" autocomplete="off" spellcheck="false" required />
+            <div class="hint">Shown on your posts, the logo, the hover card and your profile page (<span id="adm-profile-url"></span>).</div></div></div>
+          <div class="frow"><div class="lab">Title</div><div class="fld"><input type="text" name="role" maxlength={LIMITS.role} required /><div class="hint">Shown under your name, e.g. Administrator.</div></div></div>
+          <div class="frow"><div class="lab">About you</div><div class="fld"><textarea name="about" rows="4" maxlength={LIMITS.about}></textarea><div class="hint">The About tab of your profile.</div></div></div>
+          <div class="frow"><div class="lab">Member since</div><div class="fld"><input type="date" name="joined" required /></div></div>
+          <div class="frow"><div class="lab">Email</div><div class="fld"><input type="email" name="email" autocomplete="off" /><div class="hint">Contact address in the footer, on Who Am I and on your profile. Leave empty to hide it.</div></div></div>
+          <div class="frow"><div class="lab">Links</div><div class="fld adm-links">
+            {SOCIAL_NETWORKS.map((n) => <label class="adm-link"><span>{n.label}</span><input type="url" name={`socials.${n.key}`} placeholder="https://" autocomplete="off" spellcheck="false" /></label>)}
+            <div class="hint">Shown in the footer, on Who Am I and on your profile. Leave a link empty to hide it.</div>
+          </div></div>
+          <div class="acct-actions"><span class="adm-err" id="adm-profile-err" role="alert"></span><button class="save-btn" type="submit">Save profile</button></div>
+        </form>
+
+        <form class="acct-form adm-pane adm-settings" id="adm-site" data-pane="site" novalidate hidden>
+          <div class="frow"><div class="lab">Site name</div><div class="fld"><input type="text" name="siteTitle" maxlength={LIMITS.siteTitle} required /><div class="hint">The browser tab title and the RSS feed name.</div></div></div>
+          <div class="frow"><div class="lab">Description</div><div class="fld"><textarea name="siteDescription" rows="2" maxlength={LIMITS.siteDescription}></textarea><div class="hint">Shown by search engines and link previews.</div></div></div>
+          <div class="frow"><div class="lab">Announcement</div><div class="fld"><input type="text" name="banner" maxlength={LIMITS.banner} /><div class="hint">A notice at the top of the home page. Leave empty for none.</div></div></div>
+          {CATEGORIES.map((c) => (
+            <div class="frow"><div class="lab">Blog: /{c}</div><div class="fld adm-blog">
+              <input type="text" name={`blogs.${c}.title`} maxlength={LIMITS.blogTitle} aria-label={`/${c} name`} required />
+              <input type="text" name={`blogs.${c}.description`} maxlength={LIMITS.blogDescription} aria-label={`/${c} description`} placeholder="Description" />
+            </div></div>
+          ))}
+          <div class="frow"><div class="lab">Who Am I</div><div class="fld"><textarea name="whoami" rows="12" class="adm-body"></textarea>
+            <div class="hint">Markdown. <code>{'{handle}'}</code> becomes your username. Your email and links are listed under it automatically.</div></div></div>
+          <div class="acct-actions"><span class="adm-err" id="adm-site-err" role="alert"></span><button class="save-btn" type="submit">Save site settings</button></div>
         </form>
       </section>
     </div>
@@ -66,6 +110,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
 
 <script>
   import yaml from 'js-yaml';
+  import { validate, clean } from '../../lib/settings';
 
   const root = document.getElementById('adm');
   if (root) {
@@ -203,7 +248,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
           content: toB64(enc.encode(serialize(data, v('body')))), ...(editing ? { sha: editing.sha } : {}) }) });
         gone.delete(`${DIR}/${slug}.md`);
         note(`Saved “${title}”.`);
-        followDeploy(res && res.commit && res.commit.sha, `“${title}”`, slug, !data.draft);
+        followDeploy(res && res.commit && res.commit.sha, `“${title}”`, { slug, published: !data.draft });
         closeEditor(); await loadPosts();
       } catch (x) { if (!x.shown) { err.textContent = x.message; note(x.message, 'err'); } }
       finally { btn.disabled = false; btn.textContent = 'Save'; }
@@ -215,7 +260,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
         const res = await gh(p.path, { method: 'DELETE', body: JSON.stringify({ message: `Delete post: ${p.data.title || p.slug}`, sha: p.sha, branch: BRANCH }) });
         gone.add(p.path);
         note(`Deleted “${p.data.title || p.slug}”.`);
-        followDeploy(res && res.commit && res.commit.sha, `The delete of “${p.data.title || p.slug}”`, p.slug, false);
+        followDeploy(res && res.commit && res.commit.sha, `the delete of “${p.data.title || p.slug}”`, { slug: p.slug });
         await loadPosts();
       } catch (x) { if (!x.shown) { note(x.message, 'err'); $('adm-msg').scrollIntoView({ behavior: 'smooth', block: 'center' }); } }
     }
@@ -235,19 +280,20 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       if (!r.ok) throw new Error(`GitHub ${r.status}`);
       return ((await r.json()).workflow_runs || []).find((w) => /pages\.ya?ml$/.test(w.path || '')) || null;
     }
-    async function refreshSite(slug) {
-      const paths = new Set([sitePage('/'), ...EXTRA_PAGES]);
+    async function refreshSite(slug, pages = []) {
+      const paths = new Set([sitePage('/'), ...EXTRA_PAGES, ...pages]);
       if (slug) { paths.add(sitePage(`/posts/${slug}/`)); paths.add(sitePage(`/posts/${slug}`)); }
       const locs = async (url) => [...(await (await fetch(url, { cache: 'reload' })).text()).matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => new URL(m[1], location.href).pathname);
       try { for (const sm of await locs(sitePage('/sitemap-index.xml'))) (await locs(sm)).forEach((p) => paths.add(p)); } catch {}
       const list = [...paths];
       await Promise.all(Array.from({ length: 6 }, async () => { while (list.length) { try { await fetch(list.shift(), { cache: 'reload' }); } catch {} } }));
     }
-    async function followDeploy(sha, what, slug, published) {
+    async function followDeploy(sha, what, { slug = '', published = false, pages = [] } = {}) {
       const id = ++watching, box = $('adm-deploy'), current = () => id === watching;
       const show = (html, kind = 'ok') => { if (!current()) return; box.innerHTML = html; box.className = `acct-note ${kind}`; box.hidden = false; };
       const oldCopy = 'If a page still shows the old version, press Ctrl+F5 (Cmd+Shift+R on a Mac).';
-      if (!sha) { show(`${esc(what)} goes live on the site in about a minute. ${oldCopy}`); return; }
+      const What = esc(what.charAt(0).toUpperCase() + what.slice(1));   // at the start of a sentence
+      if (!sha) { show(`${What} goes live on the site in about a minute. ${oldCopy}`); return; }
       show(`<span class="adm-spin" aria-hidden="true"></span>Publishing ${esc(what)} to the site… (usually under a minute)`);
       let run = null, errors = 0;
       const t0 = Date.now();
@@ -259,27 +305,130 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
         const waited = Date.now() - t0;
         if (errors >= 3 || (!run && waited > 90e3) || waited > 8 * 60e3) {   // can't follow it from here
           const link = run ? ` <a href="${esc(run.html_url)}" target="_blank" rel="noopener">See the deploy</a>` : '';
-          show(`${esc(what)} is saved on GitHub; the site normally updates within a minute or two.${link} ${oldCopy}`);
-          await sleep(60e3); if (current()) refreshSite(slug);
+          show(`${What} is saved on GitHub; the site normally updates within a minute or two.${link} ${oldCopy}`);
+          await sleep(60e3); if (current()) refreshSite(slug, pages);
           return;
         }
       }
       const log = ` <a href="${esc(run.html_url)}" target="_blank" rel="noopener">Open the log</a>`;
       if (run.conclusion === 'cancelled') return show(`That deploy was replaced by a newer one; ${esc(what)} goes live with it.`);
       if (run.conclusion !== 'success') return show(`The site build failed, so ${esc(what)} isn't live yet.${log}`, 'err');
-      await sleep(1500); await refreshSite(slug);
+      await sleep(1500); await refreshSite(slug, pages);
       const view = published ? ` <a href="${esc(sitePage(`/posts/${slug}/`))}">View post</a>` : '';
-      show(`✓ ${esc(what)} is live.${view} This browser shows the new version now; other visitors within 10 minutes.`);
+      show(`✓ ${What} is live.${view} This browser shows the new version now; other visitors within 10 minutes.`);
+    }
+
+    // ---- Profile / Site settings: src/data/settings.json (+ whoami.md, public/owner.jpg) ----
+    const SETTINGS_FILE = 'src/data/settings.json', WHOAMI_FILE = 'src/data/whoami.md', PHOTO_FILE = 'public/owner.jpg';
+    let settings = null, settingsSha = null, whoami = '', whoamiSha = null, newPhoto = null;
+    const getPath = (o, path) => path.split('.').reduce((a, k) => (a == null ? a : a[k]), o);
+    const setPath = (o, path, v) => { const ks = path.split('.'), last = ks.pop(); ks.reduce((a, k) => (a[k] = a[k] || {}), o)[last] = v; };
+    const fields = (form) => [...form.querySelectorAll('[name]')].filter((el) => el.type !== 'file' && el.name !== 'whoami');
+    const photoUrl = (v) => sitePage(`/owner.jpg${v ? `?v=${encodeURIComponent(v)}` : ''}`);
+    const profilePage = (handle) => sitePage(`/members/${encodeURIComponent(handle.toLowerCase())}/`);
+
+    async function loadSettings() {
+      const [f, w] = await Promise.all([gh(`${SETTINGS_FILE}?ref=${BRANCH}`), gh(`${WHOAMI_FILE}?ref=${BRANCH}`)]);
+      let raw = {};
+      if (f) { try { raw = JSON.parse(dec.decode(fromB64(f.content))); } catch {} }
+      settings = clean(raw); settingsSha = f ? f.sha : null;
+      whoami = w ? dec.decode(fromB64(w.content)) : ''; whoamiSha = w ? w.sha : null;
+      newPhoto = null; fillSettings();
+    }
+    function fillSettings() {
+      for (const form of [$('adm-profile'), $('adm-site')]) { fields(form).forEach((el) => { el.value = getPath(settings, el.name) ?? ''; }); showErrors(form, {}); }
+      $('adm-site').elements.whoami.value = whoami;
+      $('adm-av').src = photoUrl(settings.avatarVersion);
+      $('adm-photo-hint').textContent = "JPG, PNG or WebP. It's cropped to a square and resized to 320×320.";
+      $('adm-profile-url').textContent = profilePage(settings.handle);
+    }
+    function showErrors(form, errs) {
+      form.querySelectorAll('.adm-ferr').forEach((e) => e.remove());
+      form.querySelectorAll('.bad').forEach((e) => { e.classList.remove('bad'); e.removeAttribute('aria-invalid'); });
+      let first = null;
+      for (const [k, msg] of Object.entries(errs)) {
+        const el = form.querySelector(`[name="${k}"]`); if (!el) continue;
+        el.classList.add('bad'); el.setAttribute('aria-invalid', 'true');
+        const d = document.createElement('div'); d.className = 'adm-ferr'; d.textContent = msg; el.insertAdjacentElement('afterend', d);
+        first = first || el;
+      }
+      if (first) { first.scrollIntoView({ behavior: 'smooth', block: 'center' }); first.focus({ preventScroll: true }); }
+      return !first;
+    }
+    // the chosen image -> centre-cropped 320x320 JPEG, ready to commit
+    async function processPhoto(file) {
+      if (!/^image\//.test(file.type)) throw new Error('Pick an image file (JPG, PNG, WebP…).');
+      if (file.size > 15e6) throw new Error('That image is too big (15 MB max).');
+      let img;
+      try { img = await createImageBitmap(file); } catch { throw new Error("Couldn't read that image. Try a JPG or PNG."); }
+      const side = Math.min(img.width, img.height), c = document.createElement('canvas');
+      c.width = c.height = 320;
+      const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, 320, 320);
+      g.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, 320, 320);
+      const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.88));
+      return { b64: toB64(new Uint8Array(await blob.arrayBuffer())), url: URL.createObjectURL(blob) };
+    }
+    async function putFile(path, content, sha, message) {
+      return gh(path, { method: 'PUT', body: JSON.stringify({ message, branch: BRANCH, content, ...(sha ? { sha } : {}) }) });
+    }
+    // save one of the settings forms: settings.json (+ the photo / Who Am I text when they changed)
+    async function saveSettings(form, errId, what) {
+      const err = $(errId), btn = form.querySelector('button[type=submit]'), label = btn.textContent;
+      err.textContent = '';
+      if (!settings) { err.textContent = 'Settings are still loading. Try again in a moment.'; return; }
+      const next = structuredClone(settings);
+      fields(form).forEach((el) => setPath(next, el.name, el.value.trim()));
+      const mine = new Set(fields(form).map((el) => el.name));
+      const errs = Object.fromEntries(Object.entries(validate(next)).filter(([k]) => mine.has(k)));
+      if (!showErrors(form, errs)) { err.textContent = 'Fix the highlighted fields.'; return; }
+      const whoamiNext = form.elements.whoami ? form.elements.whoami.value.replace(/\s+$/, '') + '\n' : null;
+      btn.disabled = true; btn.textContent = 'Saving…';
+      try {
+        let sha = null, preview = null;
+        const oldHandle = settings.handle;
+        if (form.id === 'adm-profile' && newPhoto) {
+          const cur = await gh(`${PHOTO_FILE}?ref=${BRANCH}`);
+          const r = await putFile(PHOTO_FILE, newPhoto.b64, cur && cur.sha, 'Update profile photo');
+          next.avatarVersion = r.content.sha.slice(0, 10); sha = r.commit.sha; preview = newPhoto.url; newPhoto = null;
+        }
+        if (whoamiNext !== null && whoamiNext !== whoami) {
+          const r = await putFile(WHOAMI_FILE, toB64(enc.encode(whoamiNext)), whoamiSha, 'Update Who Am I');
+          whoami = whoamiNext; whoamiSha = r.content.sha; sha = r.commit.sha;
+        }
+        if (JSON.stringify(next) !== JSON.stringify(settings)) {
+          const r = await putFile(SETTINGS_FILE, toB64(enc.encode(JSON.stringify(next, null, 2) + '\n')), settingsSha, `Update ${what}`);
+          settings = next; settingsSha = r.content.sha; sha = r.commit.sha;
+        }
+        if (!sha) { note('Nothing changed.'); return; }
+        fillSettings();
+        if (preview) $('adm-av').src = preview;   // the site still serves the old photo until the deploy is live
+        const moved = settings.handle !== oldHandle;
+        note(moved ? `Saved. Your profile moves to ${profilePage(settings.handle)} once it's live.` : `Saved your ${what}.`);
+        followDeploy(sha, `your ${what}`, { pages: [profilePage(settings.handle), photoUrl(settings.avatarVersion), sitePage('/whoami/')] });
+      } catch (x) { if (!x.shown) { err.textContent = x.message; note(x.message, 'err'); } }
+      finally { btn.disabled = false; btn.textContent = label; }
+    }
+
+    // ---- tabs ----
+    function showTab(k) {
+      if (!['posts', 'profile', 'site'].includes(k)) k = 'posts';
+      document.querySelectorAll('.adm-tabs [data-tab]').forEach((t) => { const on = t.dataset.tab === k; t.classList.toggle('on', on); t.setAttribute('aria-selected', String(on)); });
+      document.querySelectorAll('#adm-app .adm-pane').forEach((p) => { p.hidden = p.dataset.pane !== k; });
+      $('adm-new').hidden = k !== 'posts';
+      history.replaceState(null, '', k === 'posts' ? location.pathname + location.search : `#${k}`);
     }
 
     async function showApp() {
       $('adm-login').hidden = true; $('adm-app').hidden = false; $('adm-who').textContent = session.user;
       document.dispatchEvent(new Event('adm:session')); // header: avatar + log out
+      showTab(location.hash.slice(1));
+      loadSettings().catch((x) => { if (!x.shown) note(`Couldn't load the settings: ${x.message}`, 'err'); });
       try { await loadPosts(); } catch (x) { if (!x.shown) note(x.message, 'err'); }
     }
     // back to the login form; `why` explains it there (the app, and its note, are hidden now)
     function logout(why = '') {
       session = null; store.set(null); note(''); closeEditor(); watching++; $('adm-deploy').hidden = true;
+      settings = null; newPhoto = null;
       $('adm-app').hidden = true; $('adm-login').hidden = false; $('adm-token-err').textContent = why;
       document.dispatchEvent(new Event('adm:session'));
     }
@@ -297,7 +446,20 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       const s = await unlock(f.elements.user.value.trim(), f.elements.pass.value); store.set(s); return s; }); });
     $('adm-out').addEventListener('click', () => logout());
     document.addEventListener('adm:signout', () => { if (session) logout(); }); // the header's log-out button
-    $('adm-new').addEventListener('click', () => { note(''); openEditor(null); });
+    $('adm-new').addEventListener('click', () => { note(''); showTab('posts'); openEditor(null); });
+    document.querySelector('.adm-tabs').addEventListener('click', (e) => { const t = e.target.closest('[data-tab]'); if (t) { note(''); showTab(t.dataset.tab); } });
+    $('adm-profile').addEventListener('submit', (e) => { e.preventDefault(); saveSettings(e.currentTarget, 'adm-profile-err', 'profile'); });
+    $('adm-site').addEventListener('submit', (e) => { e.preventDefault(); saveSettings(e.currentTarget, 'adm-site-err', 'site settings'); });
+    $('adm-profile').elements.handle.addEventListener('input', (e) => { $('adm-profile-url').textContent = profilePage(e.target.value.trim() || '…'); });
+    $('adm-profile').elements.photo.addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0]; e.target.value = '';
+      if (!file) return;
+      try {
+        newPhoto = await processPhoto(file);
+        $('adm-av').src = newPhoto.url;
+        $('adm-photo-hint').textContent = 'New photo ready. Press “Save profile” to publish it.';
+      } catch (x) { $('adm-photo-hint').textContent = x.message; }
+    });
     $('adm-cancel').addEventListener('click', closeEditor);
     $('adm-editor').addEventListener('submit', save);
     $('adm-list').addEventListener('click', (e) => {
