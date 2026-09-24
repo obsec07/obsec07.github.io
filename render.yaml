@@ -1,18 +1,21 @@
 # One-click deploy on Render (a free host that runs the Node server).
 #   Render dashboard -> New -> Blueprint -> connect this repo -> it reads this file.
 # Gives a hostname like  https://tobi-blog.onrender.com  (custom domain, e.g. tobi.sh, added in the dashboard).
+# NOTE: the free plan's disk is wiped on every deploy/restart, which resets accounts, comments and posts written in the
+# admin panel. To keep them, use a paid instance with a persistent disk mounted at e.g. /var/data and set DATA_DIR=/var/data.
 services:
   - type: web
     name: tobi-blog
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build
+    buildCommand: npm ci && npm run build
     startCommand: node admin/server.js
     healthCheckPath: /
     autoDeploy: true
     envVars:
+      # node:sqlite needs Node >= 22.13 (earlier 22.x releases hide it behind --experimental-sqlite and the server won't start)
       - key: NODE_VERSION
-        value: "22.12.0"
+        value: "22.22.2"
       # JWT signing secret — generated once and kept, so logins survive restarts. Never in the repo.
       - key: JWT_SECRET
         generateValue: true

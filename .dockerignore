@@ -1,0 +1,12 @@
+# never bake local data or secrets into the image
+node_modules
+dist
+.astro
+.git
+.env
+.env.*
+*.db
+*.sqlite
+*.secret
+admin/.secret
+*.log

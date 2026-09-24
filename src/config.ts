@@ -11,10 +11,6 @@ export const SITE = {
     github: 'https://github.com/your-username',
   },
   banner: '',
-  // Where the header sign-in / register icons point. The public homepage is NEVER blocked;
-  // only this admin tool asks for a login (obito). For local authoring keep the localhost URL;
-  // when you deploy, point this at your CMS/admin.
-  adminUrl: 'http://localhost:4331/',
 };
 
 export const NAV = [
