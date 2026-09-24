@@ -1,4 +1,6 @@
 /* ---- secblog theme: light forum aesthetic (0x90.sh-style) ---- */
+/* the hidden attribute always wins over a class's display (e.g. .h-icon / .adm-or) */
+[hidden] { display: none !important; }
 :root {
   --bg:        #faf6f1;   /* cream page background */
   --card:      #fcfaf6;   /* warm near-white card surface (lighter than the page) */
@@ -312,7 +314,8 @@ a:hover { text-decoration: underline; }
 .foot-posts .av { width: 34px; height: 34px; border-radius: 6px; background: #23263c; color: #fff; display: grid; place-items: center; font-family: var(--logo); font-size: 11px; flex: 0 0 auto; }
 .foot-posts a { color: #dfe3ef; font-size: 14px; line-height: 1.3; }
 .foot-posts .m { color: #7a8099; font-size: 12.5px; margin-top: 2px; }
-.foot-social { display: flex; flex-wrap: wrap; gap: 8px; }
+.foot-social { display: flex; flex-wrap: wrap; gap: 8px; align-content: flex-start; }
+.foot-social h4 { flex: 0 0 100%; margin-bottom: 8px; }
 .foot-social a { display: inline-grid; place-items: center; width: 38px; height: 38px; border-radius: 6px; background: #24292f; color: #fff; }
 .foot-social a:hover { transform: translateY(-2px); }
 .foot-social .foot-medium { background: #000; }
