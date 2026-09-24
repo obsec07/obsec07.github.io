@@ -86,6 +86,20 @@ a log-out button.
 `/admin` checks the token before letting you in. If GitHub won't let it save, the page says what to
 change on the token. Never paste the token anywhere else.
 
+`/admin` has three tabs:
+- **Posts**: write, edit and delete posts.
+- **Profile**: your username (logo, posts, hover card, `/members/<name>/`), photo (cropped to 320×320),
+  title, about text, member-since date, contact email, and links. The links cover GitHub, Medium,
+  Instagram, LinkedIn, YouTube, HackerOne, Bugcrowd, TryHackMe, Hack The Box and a website; empty
+  ones are hidden.
+- **Site**: site name, description, a home-page announcement, the name and description of each blog,
+  and the Who Am I text (Markdown; `{handle}` becomes your username).
+
+These settings are stored in `src/data/settings.json`, `src/data/whoami.md` and `public/owner.jpg`, so you
+can also edit them in the repo. The build checks them and falls back to a default for any value that's
+missing or invalid, such as a link that isn't http(s). After a save, `/admin` shows the deploy and says
+when the change is live.
+
 *Optional: username + password instead of the token.* The Pages build can encrypt the token with a
 username and password and publish only the encrypted copy (`/admin/vault.json`). A password form then
 appears under the token field and decrypts the token in your browser. To set it up:

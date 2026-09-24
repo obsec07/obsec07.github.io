@@ -1,37 +1,30 @@
 ---
 import Base from '../layouts/Base.astro';
 import ShareBar from '../components/ShareBar.astro';
-import { SITE, OWNER_PROFILE, avatarUrl } from '../config';
+import { SITE, OWNER_PROFILE, SOCIAL_LINKS, avatarUrl, shortUrl } from '../config';
+import * as whoamiDoc from '../data/whoami.md';
 import { fmtDate } from '../lib/owner';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const href = (p: string) => (base + p).replace(/\/{2,}/g, '/') || '/';
 const pageUrl = new URL(href('/whoami'), Astro.site).href;
-// social links shown as their short form (host + handle), no scheme
-const short = (u: string) => u.replace(/^https?:\/\/(www\.)?/, '').replace(/\/+$/, '');
+// the intro is src/data/whoami.md (editable in /admin → Site); {handle} becomes the username
+const intro = (await whoamiDoc.compiledContent()).replaceAll('{handle}', SITE.handle);
 ---
 <Base title="Who Am I">
   <article class="whoami">
     <h1>Who Am I</h1>
     <img class="whoami-av" src={avatarUrl(SITE.handle)} alt={SITE.handle} width="170" height="170" />
     <div class="prose">
-      <p>
-        Hey there! I'm <strong>{SITE.handle}</strong> — a security researcher. I hunt for bugs in web apps, play CTFs,
-        and write up the interesting ones here. Expect CTF writeups, the occasional 0day / CVE, and infosec blog posts.
-      </p>
-      <p>What you'll find here:</p>
-      <ul>
-        <li><strong>CTF Writeups</strong> — challenge walkthroughs I found interesting or enjoyable.</li>
-        <li><strong>0day / research</strong> — vulnerabilities and CVEs I've dug into.</li>
-        <li><strong>InfoSec Blog</strong> — notes, techniques and things I've learned.</li>
-        <li><strong>Tools</strong> — scripts and tooling I release.</li>
-      </ul>
-      <p>Feel free to connect with me:</p>
-      <ul>
-        <li>Email: <a href={`mailto:${SITE.email}`}>{SITE.email}</a></li>
-        <li>GitHub: <a href={SITE.socials.github}>{short(SITE.socials.github)}</a></li>
-        <li>Medium: <a href={SITE.socials.medium}>{short(SITE.socials.medium)}</a></li>
-        <li>Instagram: <a href={SITE.socials.instagram}>{short(SITE.socials.instagram)}</a></li>
-      </ul>
+      <Fragment set:html={intro} />
+      {(SITE.email || SOCIAL_LINKS.length > 0) && (
+        <Fragment>
+          <p>Feel free to connect with me:</p>
+          <ul class="connect">
+            {SITE.email && <li>Email: <a href={`mailto:${SITE.email}`}>{SITE.email}</a></li>}
+            {SOCIAL_LINKS.map((n) => <li>{n.label}: <a href={n.url} rel="me noopener" target="_blank">{shortUrl(n.url)}</a></li>)}
+          </ul>
+        </Fragment>
+      )}
     </div>
     <div class="whoami-meta"><span>Published:</span> {fmtDate(new Date(OWNER_PROFILE.joined))}</div>
     <ShareBar url={pageUrl} title={`Who Am I · ${SITE.handle}`} label="Share:" />

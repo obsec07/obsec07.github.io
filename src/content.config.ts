@@ -1,8 +1,9 @@
 import { defineCollection, z } from 'astro:content';
 import { glob } from 'astro/loaders';
+import { CATEGORIES } from './lib/settings';
 
-// Categories mirror the 0x90.sh sections.
-export const CATEGORIES = ['0day', 'ctf', 'infosec', 'tools'] as const;
+// Categories mirror the 0x90.sh sections (their titles/descriptions are in src/data/settings.json).
+export { CATEGORIES };
 
 const posts = defineCollection({
   loader: glob({ pattern: '**/*.md', base: './src/content/posts' }),
