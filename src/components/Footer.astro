@@ -38,12 +38,14 @@ const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'n
         </ul>
       </div>
 
-      {!STATIC_SITE && (
-        <div class="foot-col foot-members">
-          <h4>Newest members</h4>
-          <div class="foot-member-list"><Fragment set:html={'<!--MEMBERS_SLOT-->'} /></div>
+      <div class="foot-col foot-members">
+        <h4>Newest members</h4>
+        <div class="foot-member-list">
+          {STATIC_SITE
+            ? <span class="foot-member"><img src={avatarUrl(SITE.handle)} alt={SITE.handle} title={SITE.handle} width="40" height="40" /></span>
+            : <Fragment set:html={'<!--MEMBERS_SLOT-->'} />}
         </div>
-      )}
+      </div>
 
       <div class="foot-col foot-social">
         <h4>Stay connected</h4>

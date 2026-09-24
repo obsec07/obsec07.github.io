@@ -249,6 +249,11 @@ function newestMembers() {
   if (!rows.length) return '<span class="foot-nomembers">No members yet.</span>';
   return rows.map((r) => `<a class="foot-member" href="/members/${encodeURIComponent(lc(r.username))}" title="${esc(r.username)}"><img src="/avatar/${encodeURIComponent(lc(r.username))}" data-uprofile="${esc(lc(r.username))}" alt="${esc(r.username)}" width="40" height="40"></a>`).join('');
 }
+// home "Forum statistics" widget: active accounts, and the newest one's public name (the owner shows as its brand handle)
+function memberStats() {
+  const rows = db.prepare('SELECT username FROM users WHERE suspended=0 ORDER BY id DESC').all();
+  return { count: rows.length, latest: rows.length ? dispName(rows[0]) : OWNER };
+}
 // thread-list stats (category pages): replies = comments, reactions = likes — real data, injected per slug
 const countComments = (slug) => db.prepare('SELECT COUNT(*) c FROM comments WHERE post=?').get(slug).c;
 const countLikes = (slug) => db.prepare('SELECT COUNT(*) c FROM likes WHERE post=?').get(slug).c;
@@ -466,6 +471,7 @@ app.get('*', (req, res, next) => {
   const f = htmlFile(req.path); if (!f) return next();
   const u = me(req);
   let html = fill(fs.readFileSync(f, 'utf8'), { ICONS_SLOT: headerIcons(u), MEMBERS_SLOT: newestMembers(), UPROFILE: uprofileCards() });
+  if (html.includes('<!--STAT_MEMBERS-->')) { const m = memberStats(); html = fill(html, { STAT_MEMBERS: String(m.count), STAT_LATEST: esc(m.latest) }); }
   if (html.includes('<!--THSTATS:')) html = fill(html.replace(/<!--THSTATS:([^]*?)-->/g, (m, slug) => threadStats(slug)), { POSTHERE: postHere(u) });
   if (req.path === '/account' || req.path === '/account/') html = fill(html, { ACCOUNT_SLOT: u ? accountPanel(fullUser(u.sub), req.query.tab, req.query) : accountAnon() });
   if (req.path.startsWith('/posts/')) { const slug = path.basename(req.path.replace(/\/+$/, '')); html = fill(html, { COMMENTS_SLOT: renderComments(slug, u), AUTHORCARD: authorCard(slug) }); }

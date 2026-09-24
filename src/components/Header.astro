@@ -1,8 +1,12 @@
 ---
-import { SITE, NAV } from '../config';
+import { SITE, NAV, STATIC_SITE } from '../config';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const href = (p: string) => (base + p).replace(/\/{2,}/g, '/') || '/';
 const path = Astro.url.pathname.replace(/\/$/, '') || '/';
+// current tab, XenForo-style like the reference: the forum list, categories and threads are "Forums";
+// new posts + search are "What's new"
+const rel = path.slice(base.length) || '/';
+const tab = /^\/(whats-new|search)(\/|$)/.test(rel) ? "What's new" : /^\/(whoami|account|members|admin)(\/|$)/.test(rel) ? '' : 'Forums';
 const a = SITE.handle.slice(0, Math.ceil(SITE.handle.length / 2));
 const b = SITE.handle.slice(Math.ceil(SITE.handle.length / 2));
 const loginHref = href('/login');
@@ -40,7 +44,7 @@ const registerHref = href('/register');
 
     <nav class="nav">
       {NAV.map((n) => {
-        const active = n.href === '/' ? path === '/' && n.label === 'Home' : path.startsWith(n.href);
+        const active = n.label === tab;
         return (
           <div class="nav-item">
             <a href={href(n.href)} class={active ? 'active' : ''}>{n.label}{n.caret && <span class="caret">▾</span>}</a>
@@ -50,10 +54,15 @@ const registerHref = href('/register');
       })}
 
       <div class="h-icons">
+        {STATIC_SITE ? (
+          // no accounts on the static site: "log in" is the /admin post editor
+          <a class="h-icon" href={href('/admin/')} title="Log in" aria-label="log in">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+          </a>
+        ) : <Fragment set:html={'<!--ICONS_SLOT-->'} />}
         <a class="h-icon" href={href('/search')} title="Search" aria-label="search">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         </a>
-        <!--ICONS_SLOT-->
       </div>
     </nav>
   </div>
