@@ -1,5 +1,5 @@
 ---
-title: 0.1-Hacknet
+title: '[HTB-WEB] Hacknet'
 date: '2026-07-25'
 category: ctf
 description: ''
