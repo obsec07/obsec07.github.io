@@ -1,4 +1,4 @@
-.# Who Am I
+# Who Am I
 
 Hey there! I'm **tobi** — an independent security researcher with a focus on web and application security. I spend most of my time hunting for bugs across authorized targets, breaking down how systems fail, and turning those findings into something others can learn from. This site is where I document that journey: the challenges I solve, the vulnerabilities I uncover, and the techniques I pick up along the way.
 
