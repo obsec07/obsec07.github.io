@@ -1,11 +1,11 @@
 {
   "handle": "tobi",
-  "siteTitle": "tobi // security research",
+  "siteTitle": "tobi",
   "siteDescription": "Vulnerability research, CTF writeups, infosec notes and tool releases.",
-  "banner": "",
-  "email": "t0b1@proton.me",
+  "banner": "I will share all my Bounty Reports once they're disclosed, Feel free to fork!!",
+  "email": "obito07@proton.me",
   "role": "Administrator",
-  "joined": "2026-08-06",
+  "joined": "2024-09-06",
   "about": "Security researcher. I hunt for bugs in web apps, play CTFs and write up the interesting ones here.",
   "avatarVersion": "b28d10889c",
   "socials": {

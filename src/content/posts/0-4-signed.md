@@ -1,6 +1,6 @@
 ---
-title: 0.4-Signed
-date: '2026-09-25'
+title: '[HTB-WEB] Signed'
+date: '2026-05-25'
 category: ctf
 description: ''
 tags:
