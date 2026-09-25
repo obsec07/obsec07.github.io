@@ -1,0 +1,159 @@
+---
+// A blog's thread list, laid out like a XenForo forum page (0x90.sh): breadcrumb, title + description, page numbers,
+// a dark "Filters" bar, thread rows (avatar · title / author · date · stats · last post) and a "post here" button.
+// 20 threads a page: /ctf, /ctf/2, … Filters (tag, sort order) work across every page via /search-index.json.
+import Base from '../../layouts/Base.astro';
+import Crumbs from '../../components/Crumbs.astro';
+import Pager from '../../components/Pager.astro';
+import { CATEGORIES } from '../../content.config';
+import { CATEGORY_LABELS, CATEGORY_DESCRIPTIONS, SITE, STATIC_SITE, avatarUrl, profileAttrs } from '../../config';
+import { publishedPosts, readingMinutes } from '../../lib/posts';
+
+export const PAGE_SIZE = 20;
+export async function getStaticPaths({ paginate }) {
+  const all = await publishedPosts();
+  return CATEGORIES.flatMap((category) => paginate(all.filter((p) => p.data.category === category), { params: { category }, pageSize: PAGE_SIZE }));
+}
+const { page } = Astro.props;
+const { category } = Astro.params;
+const label = CATEGORY_LABELS[category] ?? category;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const href = (p: string) => (base + p).replace(/\/{2,}/g, '/') || '/';
+const pageUrl = (n: number) => href(n === 1 ? `/${category}/` : `/${category}/${n}/`);
+const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+const av = avatarUrl(SITE.handle);
+// every tag used in this blog, for the Filters menu
+const blogTags = [...new Set((await publishedPosts()).filter((p) => p.data.category === category).flatMap((p) => p.data.tags))].sort((a, b) => a.localeCompare(b));
+---
+<Base title={page.currentPage > 1 ? `${label} · Page ${page.currentPage}` : label}>
+  <Crumbs category={category} current />
+  <div class="page-head forum-head"><h1>{label}</h1>{CATEGORY_DESCRIPTIONS[category] && <p>{CATEGORY_DESCRIPTIONS[category]}</p>}</div>
+
+  <div class="tl-above"><Pager current={page.currentPage} last={page.lastPage} url={pageUrl} /></div>
+
+  <div class="threadlist" id="threads" data-cat={category} data-index={href('/search-index.json')} data-avatar={av} data-user={SITE.handle}>
+    <div class="tl-bar">
+      <span class="tl-active" id="tl-active" hidden></span>
+      <div class="tl-filters">
+        <button class="tl-filter-btn" id="tl-filter-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="tl-filter-menu">Filters <span class="caret">▾</span></button>
+        <form class="tl-filter-menu" id="tl-filter-menu" hidden>
+          <div class="tl-fm-title">Show only:</div>
+          <label>Tagged:
+            <select name="tag"><option value="">(Any)</option>{blogTags.map((t) => <option value={t}>{t}</option>)}</select>
+          </label>
+          <div class="tl-fm-title">Sort by:</div>
+          <div class="tl-fm-row">
+            <select name="order" aria-label="Sort by"><option value="date">Last post</option><option value="title">Title</option><option value="minutes">Reading time</option></select>
+            <select name="direction" aria-label="Direction"><option value="desc">Descending</option><option value="asc">Ascending</option></select>
+          </div>
+          <div class="tl-fm-actions"><button class="save-btn" type="submit">Filter</button></div>
+        </form>
+      </div>
+    </div>
+    <div class="tl-rows" id="tl-rows">
+      {page.data.length === 0 ? (
+        <div class="tl-empty">There are no threads in this forum.</div>
+      ) : page.data.map((p) => (
+        <div class="tl-row">
+          <img class="tl-av" src={av} {...profileAttrs(SITE.handle)} alt="" width="36" height="36" loading="lazy" />
+          <div class="tl-main">
+            <a class="tl-title" href={href('/posts/' + p.id)}>{p.data.title}</a>
+            <div class="tl-sub"><span>{SITE.handle}</span> · <span>{fmt(p.data.date)}</span><span class="tl-sub-read"> · {readingMinutes(p.body)} min read</span></div>
+          </div>
+          <dl class="tl-stats">
+            {STATIC_SITE
+              ? <Fragment><div><dt>Replies:</dt><dd>0</dd></div><div><dt>Reading:</dt><dd>{readingMinutes(p.body)} min</dd></div></Fragment>
+              : <Fragment set:html={`<!--THSTATS:${p.id}-->`} />}
+          </dl>
+          <div class="tl-last">
+            <div class="tl-last-meta"><div class="tl-last-d">{fmt(p.data.date)}</div><div class="tl-last-u">{SITE.handle}</div></div>
+            <img class="tl-av-sm" src={av} alt="" width="26" height="26" loading="lazy" />
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+
+  <div class="tl-under">
+    <Pager current={page.currentPage} last={page.lastPage} url={pageUrl} />
+    {STATIC_SITE
+      ? <a class="tl-post-btn" id="tl-posthere" href={href('/admin/')}>You must log in to post here.</a>
+      : <Fragment set:html={'<!--POSTHERE-->'} />}
+  </div>
+
+  <template id="tl-row-tpl">
+    <div class="tl-row">
+      <img class="tl-av" alt="" width="36" height="36" />
+      <div class="tl-main"><a class="tl-title"></a><div class="tl-sub"><span class="u"></span> · <span class="d"></span><span class="tl-sub-read"></span></div></div>
+      <dl class="tl-stats"><div><dt>Replies:</dt><dd>0</dd></div><div><dt>Reading:</dt><dd class="m"></dd></div></dl>
+      <div class="tl-last"><div class="tl-last-meta"><div class="tl-last-d"></div><div class="tl-last-u"></div></div><img class="tl-av-sm" alt="" width="26" height="26" /></div>
+    </div>
+  </template>
+
+  <script is:inline>
+    (function () {
+      var box = document.getElementById('threads'); if (!box) return;
+      var btn = document.getElementById('tl-filter-btn'), menu = document.getElementById('tl-filter-menu'), rows = document.getElementById('tl-rows');
+      var active = document.getElementById('tl-active'), pagers = document.querySelectorAll('.pager'), original = rows.innerHTML;
+      // "post here": signed in to /admin -> a Post thread button instead
+      try {
+        var ph = document.getElementById('tl-posthere');
+        if (ph && (sessionStorage.getItem('adm') || localStorage.getItem('adm'))) { ph.textContent = 'Post thread'; ph.href = ph.href + '#new'; ph.classList.add('can-post'); }
+      } catch (e) {}
+
+      function setOpen(open) { menu.hidden = !open; btn.setAttribute('aria-expanded', String(open)); }
+      btn.addEventListener('click', function () { setOpen(menu.hidden); });
+      document.addEventListener('click', function (e) { if (!e.target.closest('.tl-filters')) setOpen(false); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !menu.hidden) { setOpen(false); btn.focus(); } });
+
+      var fmt = function (iso) { return new Date(iso + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }); };
+      var tpl = document.getElementById('tl-row-tpl'), index = null;
+      function readQuery() { var q = new URLSearchParams(location.search); return { tag: q.get('tag') || '', order: q.get('order') || 'date', direction: q.get('direction') || 'desc' }; }
+      function isDefault(f) { return !f.tag && f.order === 'date' && f.direction === 'desc'; }
+      function chip(text, clear) {
+        var a = document.createElement('a'); a.href = '#'; a.className = 'tl-chip'; a.textContent = text + ' ×';
+        a.addEventListener('click', function (e) { e.preventDefault(); clear(); }); return a;
+      }
+      function apply(f, push) {
+        var form = menu.elements; form.tag.value = f.tag; form.order.value = f.order; form.direction.value = f.direction;
+        if (push) {
+          var q = new URLSearchParams(); if (f.tag) q.set('tag', f.tag); if (f.order !== 'date') q.set('order', f.order); if (f.direction !== 'desc') q.set('direction', f.direction);
+          history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : ''));
+        }
+        active.textContent = '';
+        if (isDefault(f)) { rows.innerHTML = original; active.hidden = true; pagers.forEach(function (p) { p.hidden = false; }); return; }
+        if (f.tag) active.appendChild(chip('Tagged: ' + f.tag, function () { apply({ tag: '', order: f.order, direction: f.direction }, true); }));
+        if (!(f.order === 'date' && f.direction === 'desc')) active.appendChild(chip('Sort: ' + menu.elements.order.selectedOptions[0].text + ', ' + menu.elements.direction.selectedOptions[0].text.toLowerCase(), function () { apply({ tag: f.tag, order: 'date', direction: 'desc' }, true); }));
+        active.hidden = false;
+        pagers.forEach(function (p) { p.hidden = true; });   // the filtered list covers every page
+        (index ? Promise.resolve(index) : fetch(box.dataset.index).then(function (r) { return r.json(); })).then(function (all) {
+          index = all;
+          var list = all.filter(function (p) { return p.key === box.dataset.cat && (!f.tag || (p.tags || []).indexOf(f.tag) >= 0); });
+          var dir = f.direction === 'asc' ? 1 : -1;
+          list.sort(function (a, b) {
+            var x = f.order === 'title' ? a.title.localeCompare(b.title) : f.order === 'minutes' ? a.minutes - b.minutes : a.date.localeCompare(b.date);
+            return x * dir || b.date.localeCompare(a.date);
+          });
+          rows.textContent = '';
+          if (!list.length) { var e = document.createElement('div'); e.className = 'tl-empty'; e.textContent = 'No threads match these filters.'; rows.appendChild(e); return; }
+          list.forEach(function (p) {
+            var r = tpl.content.firstElementChild.cloneNode(true);
+            r.querySelector('.tl-av').src = r.querySelector('.tl-av-sm').src = box.dataset.avatar;
+            r.querySelector('.tl-av').setAttribute('data-uprofile', box.dataset.user);
+            var t = r.querySelector('.tl-title'); t.href = p.url; t.textContent = p.title;
+            r.querySelector('.u').textContent = r.querySelector('.tl-last-u').textContent = box.dataset.user;
+            r.querySelector('.d').textContent = r.querySelector('.tl-last-d').textContent = fmt(p.date);
+            r.querySelector('.tl-sub-read').textContent = ' · ' + p.minutes + ' min read';
+            r.querySelector('.m').textContent = p.minutes + ' min';
+            rows.appendChild(r);
+          });
+        }).catch(function () { rows.innerHTML = original; });
+      }
+      menu.addEventListener('submit', function (e) {
+        e.preventDefault(); setOpen(false);
+        apply({ tag: menu.elements.tag.value, order: menu.elements.order.value, direction: menu.elements.direction.value }, true);
+      });
+      var start = readQuery(); if (!isDefault(start)) apply(start, false);
+    })();
+  </script>
+</Base>

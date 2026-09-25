@@ -258,12 +258,12 @@ function memberStats() {
 const countComments = (slug) => db.prepare('SELECT COUNT(*) c FROM comments WHERE post=?').get(slug).c;
 const countLikes = (slug) => db.prepare('SELECT COUNT(*) c FROM likes WHERE post=?').get(slug).c;
 function threadStats(slug) {
-  return `<span class="tl-stat"><span class="k">Replies</span><b>${countComments(slug)}</b></span><span class="tl-stat"><span class="k">Reactions</span><b>${countLikes(slug)}</b></span>`;
+  return `<div><dt>Replies:</dt><dd>${countComments(slug)}</dd></div><div><dt>Reactions:</dt><dd>${countLikes(slug)}</dd></div>`;
 }
 // "post here" footer on category pages, driven by permission
 function postHere(u) {
-  if (!u) return '<span class="tl-post-note">You must <a href="/login">log in</a> or <a href="/register">register</a> to post here.</span>';
-  return canPost(fullUser(u.sub)) ? '<a class="tl-post-btn" href="/account?tab=write">Post a thread</a>' : '<span class="tl-post-note">Your account needs administrator permission before you can post.</span>';
+  if (!u) return '<a class="tl-post-btn" href="/login">You must log in or register to post here.</a>';
+  return canPost(fullUser(u.sub)) ? '<a class="tl-post-btn can-post" href="/account?tab=write">Post thread</a>' : '<span class="tl-post-btn tl-post-note">Your account needs administrator permission before you can post.</span>';
 }
 // author info card on a thread — points derived from likes + comments on that thread
 function authorCard(slug) {

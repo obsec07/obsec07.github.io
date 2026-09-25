@@ -421,7 +421,9 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
     async function showApp() {
       $('adm-login').hidden = true; $('adm-app').hidden = false; $('adm-who').textContent = session.user;
       document.dispatchEvent(new Event('adm:session')); // header: avatar + log out
+      const wantNew = location.hash === '#new';   // "Post thread" on a blog page links to /admin/#new
       showTab(location.hash.slice(1));
+      if (wantNew) openEditor(null);
       loadSettings().catch((x) => { if (!x.shown) note(`Couldn't load the settings: ${x.message}`, 'err'); });
       try { await loadPosts(); } catch (x) { if (!x.shown) note(x.message, 'err'); }
     }
@@ -448,6 +450,12 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
     document.addEventListener('adm:signout', () => { if (session) logout(); }); // the header's log-out button
     $('adm-new').addEventListener('click', () => { note(''); showTab('posts'); openEditor(null); });
     document.querySelector('.adm-tabs').addEventListener('click', (e) => { const t = e.target.closest('[data-tab]'); if (t) { note(''); showTab(t.dataset.tab); } });
+    // #new / #profile / #site typed or linked while the admin page is already open
+    window.addEventListener('hashchange', () => {
+      if (!session) return;
+      const h = location.hash.slice(1);
+      if (h === 'new') { showTab('posts'); openEditor(null); } else if (h === 'profile' || h === 'site') showTab(h);
+    });
     $('adm-profile').addEventListener('submit', (e) => { e.preventDefault(); saveSettings(e.currentTarget, 'adm-profile-err', 'profile'); });
     $('adm-site').addEventListener('submit', (e) => { e.preventDefault(); saveSettings(e.currentTarget, 'adm-site-err', 'site settings'); });
     $('adm-profile').elements.handle.addEventListener('input', (e) => { $('adm-profile-url').textContent = profilePage(e.target.value.trim() || '…'); });
