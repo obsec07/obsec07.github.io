@@ -1,6 +1,6 @@
 ---
 title: 0.2-Conversor
-date: '2026-09-25'
+date: '2026-08-26'
 category: ctf
 description: ''
 tags:
