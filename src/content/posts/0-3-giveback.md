@@ -1,5 +1,5 @@
 ---
-title: 0.3-Giveback
+title: '[HTB-WEB] Giveback'
 date: '2026-06-25'
 category: ctf
 description: ''
