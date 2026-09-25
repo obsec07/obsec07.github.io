@@ -36,7 +36,7 @@ In Burp Suite, the telephone update used this endpoint:
 
 ```http
 PUT /api/1.0/users/current HTTP/1.1
-Host: account-login.tst.com
+Host: account-login.test.com
 Authorization: Bearer <TEST_ACCOUNT_ACCESS_TOKEN>
 Content-Type: application/json
 ```
