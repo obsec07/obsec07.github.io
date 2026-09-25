@@ -181,7 +181,7 @@ The responses included:
 - **403 Forbidden**, with the detail `ChangeMobileNumber: TAN does not match`.
 - **503 Service Unavailable**, with `Service not available!` and `Network Error` in the response body.
 
-I had difficulty receiving a TAN on the numbers available for testing and suspected a possible country-related delivery limitation. I did not confirm that the service only supported German numbers; the form included examples with several country codes.
+I had difficulty receiving a TAN on the numbers available for testing and suspected a possible country-related delivery limitation. I did not confirm that the service only supported European numbers; the form included examples with several country codes.
 
 I could not complete these later tests with a valid TAN. I therefore did not confirm an unauthorized cross-account mobile change or demonstrate a login that defeated an enabled second factor. The proposed IDOR and 2FA chain required further validation.
 
