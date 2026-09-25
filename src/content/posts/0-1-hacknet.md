@@ -1,5 +1,5 @@
 ---
-title: 0.1-HACKNET
+title: 0.1-Hacknet
 date: '2026-09-25'
 category: ctf
 description: ''
