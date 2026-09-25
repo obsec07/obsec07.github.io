@@ -1,5 +1,5 @@
 ---
-title: 0.4-Signed
+title: '[HTB-WEB] Signed'
 date: '2026-05-25'
 category: ctf
 description: ''
