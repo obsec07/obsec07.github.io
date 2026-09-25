@@ -1,6 +1,6 @@
 ---
 title: 0.3-Giveback
-date: '2026-09-25'
+date: '2026-06-25'
 category: ctf
 description: ''
 tags:
