@@ -441,8 +441,9 @@ a:hover { text-decoration: underline; }
 /* ---- dark footer (4 columns) ---- */
 .site-footer { background: var(--foot-bg); color: var(--foot-fg); border: 0; margin-top: 46px; padding: 40px 0 60px; }
 .foot-grid { display: grid; grid-template-columns: 1.1fr 1.3fr 1fr 1fr; gap: 34px; }
-@media (max-width: 900px) { .foot-grid { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 560px) { .foot-grid { grid-template-columns: 1fr; } }
+.foot-grid.no-latest { grid-template-columns: 1.1fr 1fr 1fr; }   /* every post is already on the page: no "Latest posts" column */
+@media (max-width: 900px) { .foot-grid, .foot-grid.no-latest { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .foot-grid, .foot-grid.no-latest { grid-template-columns: 1fr; } }
 .foot-col h4 { font-family: var(--pixel); color: var(--foot-hd); font-size: 15px; letter-spacing: .5px; text-transform: uppercase; margin: 0 0 16px; }
 .foot-stats { list-style: none; margin: 0; padding: 0; }
 .foot-stats li { display: flex; justify-content: space-between; padding: 4px 0; color: var(--foot-fg); }

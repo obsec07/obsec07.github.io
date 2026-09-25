@@ -4,8 +4,9 @@ import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
 import { SITE, STATIC_SITE } from '../config';
 import ProfileCard from '../components/ProfileCard.astro';
-interface Props { title?: string; description?: string; noindex?: boolean; }
-const { title, description, noindex = false } = Astro.props;
+// shownPosts: ids of the posts this page already lists; the footer's "Latest posts" skips them (no post twice on a page)
+interface Props { title?: string; description?: string; noindex?: boolean; shownPosts?: string[]; }
+const { title, description, noindex = false, shownPosts = [] } = Astro.props;
 const pageTitle = title ? `${title} · ${SITE.handle}` : SITE.title;
 const desc = description || SITE.description;
 const favicon = "data:image/svg+xml," + encodeURIComponent(
@@ -48,7 +49,7 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
     <main class="wrap">
       <slot />
     </main>
-    <Footer />
+    <Footer exclude={shownPosts} />
     <div class="cookie" id="cookie" style="display:none">
       <p>This site uses cookies to help personalise content, tailor your experience and to keep you logged in if you register. By continuing to use this site, you are consenting to our use of cookies.</p>
       <div class="btns">
