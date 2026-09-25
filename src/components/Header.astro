@@ -104,11 +104,10 @@ const registerHref = href('/register');
     <script is:inline>
       (function () {
         var btn = document.getElementById('theme-toggle'), root = document.documentElement;
-        var sys = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
-        function saved() { try { return localStorage.getItem('theme'); } catch (e) { return null; } }
         function set(t) {
           root.setAttribute('data-theme', t);
           var m = document.querySelector('meta[name=theme-color]'); if (m) m.content = t === 'dark' ? '#0f131c' : '#faf6f1';
+          var c = document.querySelector('meta[name=color-scheme]'); if (c) c.content = t;
           var next = t === 'dark' ? 'light' : 'dark';
           btn.setAttribute('aria-label', 'Switch to ' + next + ' mode'); btn.title = 'Switch to ' + next + ' mode';
           btn.setAttribute('aria-pressed', String(t === 'dark'));
@@ -120,8 +119,6 @@ const registerHref = href('/register');
           var still = matchMedia('(prefers-reduced-motion: reduce)').matches;
           if (document.startViewTransition && !still) document.startViewTransition(function () { set(t); }); else set(t);
         });
-        // no choice made yet: follow the device when it switches (e.g. at sunset)
-        if (sys && sys.addEventListener) sys.addEventListener('change', function (e) { var s = saved(); if (s !== 'light' && s !== 'dark') set(e.matches ? 'dark' : 'light'); });
         // another tab switched
         window.addEventListener('storage', function (e) { if (e.key === 'theme' && (e.newValue === 'light' || e.newValue === 'dark')) set(e.newValue); });
       })();
