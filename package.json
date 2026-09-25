@@ -14,7 +14,7 @@
     "admin:reset": "node admin/server.js --reset",
     "serve": "node admin/server.js",
     "start": "npm run build && node admin/server.js",
-    "test": "astro build && node --test test/*.test.js"
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "@astrojs/rss": "^4.0.11",
