@@ -130,6 +130,7 @@ docker run -p 8080:8080 -e ADMIN_PASSWORD='…' -v secblog-data:/app/data secblo
 ```bash
 npm test
 ```
-This builds the site, then runs the integration tests in `test/`. They start the server against a throwaway
-copy of the project, so your real posts and database are never touched. They cover auth, sessions, rate
+This runs the integration tests in `test/`. They build a throwaway copy of the project with a test post of
+its own and start the server against it. Your real posts and database are never touched, and adding or
+deleting posts can't break the tests. They cover auth, sessions, rate
 limiting, path handling and posting rules. CI (`.github/workflows/ci.yml`) runs them on every push.

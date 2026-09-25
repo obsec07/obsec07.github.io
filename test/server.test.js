@@ -2,7 +2,7 @@
 // The server runs against a throwaway copy of the project + a temp data dir, so real posts and app.db are never touched.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import os from 'node:os';
@@ -11,15 +11,22 @@ import { fileURLToPath } from 'node:url';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ADMIN = { username: 't0b!', password: 'admin-test-pass' };
+// the tests' own post: real posts come and go (any of them can be deleted from /admin), this one is always there
+const POST = 'ci-fixture-post', POST_TITLE = 'CI fixture post';
 let tmp, server, base, ipN = 0;
 
 const freePort = () => new Promise((ok) => { const s = net.createServer().listen(0, () => { const { port } = s.address(); s.close(() => ok(port)); }); });
 
 before(async () => {
-  if (!fs.existsSync(path.join(REPO, 'dist', 'index.html'))) throw new Error('dist/ missing — run `npm run build` first (npm test does this)');
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'secblog-test-'));
-  for (const p of ['src', 'public', 'dist', 'package.json', 'astro.config.mjs', 'admin/server.js']) fs.cpSync(path.join(REPO, p), path.join(tmp, p), { recursive: true });
+  for (const p of ['src', 'public', 'package.json', 'astro.config.mjs', 'admin/server.js']) fs.cpSync(path.join(REPO, p), path.join(tmp, p), { recursive: true });
   fs.symlinkSync(path.join(REPO, 'node_modules'), path.join(tmp, 'node_modules'), 'dir');
+  const posts = path.join(tmp, 'src/content/posts');
+  fs.mkdirSync(posts, { recursive: true });
+  fs.writeFileSync(path.join(posts, `${POST}.md`), `---\ntitle: ${POST_TITLE}\ndate: 2026-01-01\ncategory: ctf\ndescription: Written by the test suite.\ntags: [test]\n---\n\nFixture body.\n`);
+  // build the Node-server flavour of the site (the real posts + the fixture) into the copy's dist/
+  const build = spawnSync(process.execPath, [path.join(REPO, 'node_modules/astro/astro.js'), 'build'], { cwd: tmp, encoding: 'utf8', env: { ...process.env, PUBLIC_STATIC_SITE: '' } });
+  if (build.status !== 0) throw new Error('astro build failed:\n' + build.stdout + build.stderr);
   fs.writeFileSync(path.join(tmp, 'outside.html'), 'OUTSIDE-DIST-MARKER');   // sibling of dist/ — must never be served
   const port = await freePort();
   base = `http://127.0.0.1:${port}`;
@@ -144,9 +151,9 @@ test('suspending a user ends their session immediately', async () => {
   await u.register('susp_user');
   assert.ok(u.loggedIn);
   await (await asAdmin()).req('/admin-panel/suspend/' + await uidOf('susp_user'), { method: 'POST' });
-  const r = await u.req('/posts/ctf-web-walkthrough/comment', { method: 'POST', form: { body: 'posted-after-suspension' } });
+  const r = await u.req(`/posts/${POST}/comment`, { method: 'POST', form: { body: 'posted-after-suspension' } });
   assert.equal(r.location, '/login');
-  assert.ok(!(await client().req('/posts/ctf-web-walkthrough')).text.includes('posted-after-suspension'));
+  assert.ok(!(await client().req(`/posts/${POST}`)).text.includes('posted-after-suspension'));
 });
 
 test('demoting an admin revokes panel access immediately', async () => {
@@ -162,8 +169,8 @@ test('demoting an admin revokes panel access immediately', async () => {
 test('"$" patterns in a comment are rendered literally', async () => {
   const u = client();
   await u.register('dollar_user');
-  await u.req('/posts/ctf-web-walkthrough/comment', { method: 'POST', form: { body: "A$`B$'C$&D" } });
-  const { text } = await client().req('/posts/ctf-web-walkthrough');
+  await u.req(`/posts/${POST}/comment`, { method: 'POST', form: { body: "A$`B$'C$&D" } });
+  const { text } = await client().req(`/posts/${POST}`);
   assert.ok(text.includes("A$`B$'C$&amp;D"), 'comment should appear verbatim');
   assert.equal(text.match(/<!doctype html>/gi).length, 1, 'page HTML was spliced into the comment');
 });
@@ -194,13 +201,13 @@ test('admin add-user validates the username', async () => {
 
 // keep last: saving a post triggers a background site rebuild
 test("an approved user's draft never overwrites an existing post", async () => {
-  const file = path.join(tmp, 'src/content/posts/ctf-web-walkthrough.md');
+  const file = path.join(tmp, `src/content/posts/${POST}.md`);
   const original = fs.readFileSync(file, 'utf8');
   const u = client();
   await u.register('writer_user');
   await (await asAdmin()).req('/admin-panel/approve/' + await uidOf('writer_user'), { method: 'POST' });
-  const r = await u.req('/account/write', { method: 'POST', form: { title: 'CTF web walkthrough', category: 'ctf', body: 'replacement body' } });
+  const r = await u.req('/account/write', { method: 'POST', form: { title: POST_TITLE, category: 'ctf', body: 'replacement body' } });
   assert.match(r.location, /ok=submitted/);
   assert.equal(fs.readFileSync(file, 'utf8'), original, 'existing post was overwritten');
-  assert.match(fs.readFileSync(path.join(tmp, 'src/content/posts/ctf-web-walkthrough-2.md'), 'utf8'), /draft: true[\s\S]*replacement body/);
+  assert.match(fs.readFileSync(path.join(tmp, `src/content/posts/${POST}-2.md`), 'utf8'), /draft: true[\s\S]*replacement body/);
 });
