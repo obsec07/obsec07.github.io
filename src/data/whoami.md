@@ -1,12 +1,4 @@
-Hey there! I'm **{handle}** — a security researcher. I hunt for bugs in web apps, play CTFs, and write up the interesting ones here. Expect CTF writeups, the occasional 0day / CVE, and infosec blog posts.
-
-What you'll find here:
-
-- **CTF Writeups** — challenge walkthroughs I found interesting or enjoyable.
-- **0day / research** — vulnerabilities and CVEs I've dug into.
-- **InfoSec Blog** — notes, techniques and things I've learned.
-- **Tools** — scripts and tooling I release.
-# Who Am I
+.# Who Am I
 
 Hey there! I'm **tobi** — an independent security researcher with a focus on web and application security. I spend most of my time hunting for bugs across authorized targets, breaking down how systems fail, and turning those findings into something others can learn from. This site is where I document that journey: the challenges I solve, the vulnerabilities I uncover, and the techniques I pick up along the way.
 
