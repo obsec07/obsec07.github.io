@@ -10,7 +10,7 @@ draft: false
 
 # How I Found a Mobile Verification Bypass by Reusing a Telephone Update Request
 
-*A walkthrough of phone and email update testing in Telekom Business Login, followed by an investigation into a possible IDOR and 2FA bypass.*
+*A walkthrough of phone and email update testing in  Business Login, followed by an investigation into a possible IDOR and 2FA bypass.*
 
 The decisive change in this investigation was a JSON field: `"type": "work"` became `"type": "mobile"`.
 
