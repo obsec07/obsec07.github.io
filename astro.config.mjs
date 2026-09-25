@@ -15,7 +15,7 @@ export default defineConfig({
     // The <code> inside each block is what scrolls (see .prose pre code), so the "Code:" bar on the <pre> stays put;
     // it also takes the keyboard focus stop, so arrow keys scroll it.
     shikiConfig: {
-      theme: 'github-light',
+      themes: { light: 'github-light-default', dark: 'github-dark-default' },   // dark mode swaps to the dark palette (global.css)
       wrap: false,
       transformers: [{
         pre(node) { delete node.properties.tabindex; },
