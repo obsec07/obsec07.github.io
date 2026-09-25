@@ -1,4 +1,4 @@
-# secblog — security-research blog (0x90.sh-style)
+# secblog — security-research blog 
 
 Forum-style blog for **CTF writeups, 0day/CVE research, infosec notes and tools**.
 
