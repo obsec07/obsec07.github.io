@@ -16,7 +16,7 @@ export async function getStaticPaths() {
 const { tag } = Astro.params;
 const { posts } = Astro.props;
 ---
-<Base title={`#${tag}`}>
+<Base title={`#${tag}`} shownPosts={posts.map((p) => p.id)}>
   <div class="page-head">
     <h1>#{tag}</h1>
     <p>{posts.length} {posts.length === 1 ? 'entry' : 'entries'}</p>

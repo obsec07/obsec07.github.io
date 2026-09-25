@@ -25,7 +25,7 @@ const av = avatarUrl(SITE.handle);
 // every tag used in this blog, for the Filters menu
 const blogTags = [...new Set((await publishedPosts()).filter((p) => p.data.category === category).flatMap((p) => p.data.tags))].sort((a, b) => a.localeCompare(b));
 ---
-<Base title={page.currentPage > 1 ? `${label} · Page ${page.currentPage}` : label}>
+<Base title={page.currentPage > 1 ? `${label} · Page ${page.currentPage}` : label} shownPosts={page.data.map((p) => p.id)}>
   <Crumbs category={category} current />
   <div class="page-head forum-head"><h1>{label}</h1>{CATEGORY_DESCRIPTIONS[category] && <p>{CATEGORY_DESCRIPTIONS[category]}</p>}</div>
 

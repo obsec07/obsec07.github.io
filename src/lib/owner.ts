@@ -1,6 +1,6 @@
 // Owner stats for the static site's hover card, author card and profile page.
 // There are no reactions on a static site, so trophies are earned from published posts and points are their sum.
-import { getCollection } from 'astro:content';
+import { publishedPosts } from './posts';
 import { OWNER_PROFILE } from '../config';
 
 const TROPHIES = [
@@ -13,19 +13,20 @@ const TROPHIES = [
 export const fmtDate = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 
 export async function ownerStats() {
-  const posts = (await getCollection('posts', ({ data }) => !data.draft))
-    .sort((a, b) => a.data.date.valueOf() - b.data.date.valueOf());
+  // same order as every other list on the site (newest first, same tie-break), reversed to oldest first here
+  const newest = await publishedPosts();
+  const posts = [...newest].reverse();
   // newest trophy first, dated by the post that earned it
   const trophies = TROPHIES.filter((t) => posts.length >= t.at)
     .map((t) => ({ ...t, date: posts[t.at - 1].data.date }))
     .reverse();
   return {
-    posts: [...posts].reverse(),            // newest first
+    posts: newest,                          // newest first
     messages: posts.length,
     reactions: OWNER_PROFILE.reactions,
     points: trophies.reduce((n, t) => n + t.points, 0),
     trophies,
-    latest: posts[posts.length - 1] ?? null,
+    latest: newest[0] ?? null,
     joined: fmtDate(new Date(OWNER_PROFILE.joined)),
   };
 }

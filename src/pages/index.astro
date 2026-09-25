@@ -21,16 +21,17 @@ function forCat(key: string) {
   const isNew = items[0] ? (Date.now() - items[0].data.date.valueOf()) / 864e5 < 21 : false;
   return { count: items.length, latest, isNew };
 }
-const latestPosts = all.slice(0, 5);
-// "Recent posts" cards at the top of the forum list: the newest few, one click away
+// "Recent posts" cards at the top of the forum list: the newest few, one click away; the sidebar lists the next
+// ones ("More posts") so no post appears twice, and the footer skips everything already here
 const recent = all.slice(0, 3);
+const latestPosts = all.slice(3, 8);
 const isFresh = (d: Date) => (Date.now() - d.valueOf()) / 864e5 < 21;
 
 // "Share this page" targets the public URL of the home page
 const pageUrl = new URL(href('/'), Astro.site).href;
 const chevron = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 15 12 9 18 15"/></svg>';
 ---
-<Base>
+<Base shownPosts={[...recent, ...latestPosts].map((p) => p.id)}>
   {SITE.banner && <div class="banner">{SITE.banner}</div>}
 
   <div class="home-top">
@@ -98,21 +99,23 @@ const chevron = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" str
     </div>
 
     <aside class="side">
+      {latestPosts.length > 0 && (
       <div class="widget">
-        <h3>Latest posts</h3>
+        <h3>More posts</h3>
         <ul class="lp">
           {latestPosts.map((p) => (
             <li>
               <img class="av" src={avatarUrl(SITE.handle)} {...profileAttrs(SITE.handle)} alt="" width="22" height="22" loading="lazy" />
               <div>
                 <a href={href('/posts/' + p.id)}>{p.data.title}</a>
-                <div class="m">Latest: {SITE.handle} · {fmt(p.data.date)}</div>
+                <div class="m">{SITE.handle} · {fmt(p.data.date)}</div>
                 <div class="m"><a class="cat-link" href={href('/' + p.data.category)}>{CATEGORY_LABELS[p.data.category] ?? p.data.category}</a></div>
               </div>
             </li>
           ))}
         </ul>
       </div>
+      )}
 
       <div class="widget">
         <h3>Forum statistics</h3>
