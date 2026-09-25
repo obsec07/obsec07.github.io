@@ -3,6 +3,7 @@
 // its account database, so nothing is generated here for server builds.
 import Base from '../../layouts/Base.astro';
 import PostCard from '../../components/PostCard.astro';
+import { readingMinutes } from '../../lib/posts';
 import { SITE, OWNER_PROFILE, CATEGORY_LABELS, STATIC_SITE, SOCIAL_LINKS, avatarUrl, shortUrl } from '../../config';
 import { ownerStats, fmtDate } from '../../lib/owner';
 
@@ -68,7 +69,7 @@ const tabs = [['profile-posts', 'Profile posts'], ['activity', 'Latest activity'
 
   <section class="profile-pane" data-pane="postings" hidden>
     <ul class="posts">
-      {s.posts.map((p) => <PostCard slug={p.id} title={p.data.title} date={p.data.date} category={p.data.category} description={p.data.description} tags={p.data.tags} />)}
+      {s.posts.map((p) => <PostCard slug={p.id} title={p.data.title} date={p.data.date} category={p.data.category} description={p.data.description} tags={p.data.tags} minutes={readingMinutes(p.body)} />)}
     </ul>
   </section>
 

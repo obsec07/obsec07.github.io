@@ -2,6 +2,8 @@
 import Base from '../../layouts/Base.astro';
 import ShareBar from '../../components/ShareBar.astro';
 import Crumbs from '../../components/Crumbs.astro';
+import PostCard from '../../components/PostCard.astro';
+import { publishedPosts, readingMinutes, neighbours, related, tagHref } from '../../lib/posts';
 import { getCollection, render } from 'astro:content';
 import { CATEGORY_LABELS, SITE, STATIC_SITE, OWNER_PROFILE, avatarUrl, profileAttrs, profileUrl } from '../../config';
 import { ownerStats } from '../../lib/owner';
@@ -12,7 +14,13 @@ export async function getStaticPaths() {
   return posts.map((post) => ({ params: { slug: post.id }, props: { post } }));
 }
 const { post } = Astro.props;
-const { Content } = await render(post);
+const { Content, headings } = await render(post);
+const minutes = readingMinutes(post.body);
+// "On this page" box for longer posts (3+ section headings)
+const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
+const all = await publishedPosts();
+const { newer, older } = neighbours(all, post.id);
+const similar = related(all, post);
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const href = (p: string) => (base + p).replace(/\/{2,}/g, '/') || '/';
 const label = CATEGORY_LABELS[post.data.category] ?? post.data.category;
@@ -36,6 +44,11 @@ const d = post.data.date.toLocaleDateString('en-US', { month: 'short', day: 'num
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
           {d}
         </span>
+        <span class="mid-dot">·</span>
+        <span class="by read-time">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 5h7a3 3 0 0 1 3 3v12a2 2 0 0 0-2-2H2zM22 5h-7a3 3 0 0 0-3 3v12a2 2 0 0 1 2-2h8z"/></svg>
+          {minutes} min read
+        </span>
       </div>
     </header>
 
@@ -55,7 +68,13 @@ const d = post.data.date.toLocaleDateString('en-US', { month: 'short', day: 'num
       </div>
       <div class="prose">
         {post.data.tags && post.data.tags.length > 0 && (
-          <div class="post-tags"><a href={catHref}><span class="chip">{label}</span></a>{post.data.tags.map((t) => <span class="tag">{t}</span>)}</div>
+          <div class="post-tags"><a href={catHref}><span class="chip">{label}</span></a>{post.data.tags.map((t) => <a class="tag" href={tagHref(base, t)}>{t}</a>)}</div>
+        )}
+        {toc.length >= 3 && (
+          <details class="toc" open>
+            <summary>On this page</summary>
+            <ol>{toc.map((h) => <li class={`toc-d${h.depth}`}><a href={`#${h.slug}`}>{h.text}</a></li>)}</ol>
+          </details>
         )}
         <Content />
       </div>
@@ -72,6 +91,36 @@ const d = post.data.date.toLocaleDateString('en-US', { month: 'short', day: 'num
       ) : <Fragment set:html={'<!--AUTHORCARD-->'} />}
     </div>
   </article>
+
+  {(newer || older) && (
+    <nav class="post-nav" aria-label="More posts">
+      {older ? <a class="pn pn-older" href={href('/posts/' + older.id)}><span class="pn-dir">← Older post</span><span class="pn-title">{older.data.title}</span></a> : <span></span>}
+      {newer && <a class="pn pn-newer" href={href('/posts/' + newer.id)}><span class="pn-dir">Newer post →</span><span class="pn-title">{newer.data.title}</span></a>}
+    </nav>
+  )}
+
+  <div class="read-progress" aria-hidden="true"><span></span></div>
+
+  <script is:inline>
+    // reading progress: how far through the post you are, as a thin bar along the top of the window
+    (function () {
+      var wrap = document.querySelector('.read-progress'), bar = wrap && wrap.firstElementChild, post = document.querySelector('.thread .message');
+      if (!bar || !post) return;
+      document.body.appendChild(wrap);   // out of <main>: its fade-in animation would otherwise pin the "fixed" bar inside it
+      // on a phone the contents box starts folded, so the article isn't pushed below the fold
+      var toc = document.querySelector('.toc');
+      if (toc && matchMedia('(max-width: 640px)').matches) toc.open = false;
+      var queued = false;
+      function update() {
+        queued = false;
+        var r = post.getBoundingClientRect(), total = r.height - innerHeight * 0.6;
+        var done = total > 0 ? (innerHeight * 0.4 - r.top) / total : 1;
+        bar.style.transform = 'scaleX(' + Math.max(0, Math.min(1, done)) + ')';
+      }
+      function onScroll() { if (!queued) { queued = true; requestAnimationFrame(update); } }
+      addEventListener('scroll', onScroll, { passive: true }); addEventListener('resize', onScroll); update();
+    })();
+  </script>
 
   <script is:inline>
     // share icon on the post: a small menu with the share links (+ the system share sheet where there is one)
@@ -91,4 +140,13 @@ const d = post.data.date.toLocaleDateString('en-US', { month: 'short', day: 'num
   </script>
 
   {!STATIC_SITE && <section class="comments"><Fragment set:html={'<!--COMMENTS_SLOT-->'} /></section>}
+
+  {similar.length > 0 && (
+    <section class="related">
+      <h2>Related posts</h2>
+      <ul class="posts">
+        {similar.map((p) => <PostCard slug={p.id} title={p.data.title} date={p.data.date} category={p.data.category} description={p.data.description} tags={p.data.tags} minutes={readingMinutes(p.body)} />)}
+      </ul>
+    </section>
+  )}
 </Base>

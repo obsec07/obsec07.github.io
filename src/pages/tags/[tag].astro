@@ -1,6 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro';
 import PostCard from '../../components/PostCard.astro';
+import { readingMinutes } from '../../lib/posts';
 import { getCollection } from 'astro:content';
 
 export async function getStaticPaths() {
@@ -22,7 +23,7 @@ const { posts } = Astro.props;
   </div>
   <ul class="posts">
     {posts.map((p) => (
-      <PostCard slug={p.id} title={p.data.title} date={p.data.date} category={p.data.category} description={p.data.description} tags={p.data.tags} />
+      <PostCard slug={p.id} title={p.data.title} date={p.data.date} category={p.data.category} description={p.data.description} tags={p.data.tags} minutes={readingMinutes(p.body)} />
     ))}
   </ul>
 </Base>
