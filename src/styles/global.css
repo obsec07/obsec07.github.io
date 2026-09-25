@@ -78,6 +78,9 @@ html { scroll-behavior: smooth; }
 :where(button, .save-btn, .newposts-btn, .find-btn, .h-icon, .icon-btn):active { transform: translateY(1px); }
 @keyframes fade-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @keyframes slide-up { from { transform: translateY(100%); } to { transform: none; } }
+/* below the page (a short page on a tall screen) shows the footer's colour, so the footer runs to the bottom of the
+   screen instead of stopping above an empty strip; the page itself keeps --bg (body has its own background) */
+html { background: var(--foot-bg); }
 body {
   margin: 0; background: var(--bg); color: var(--ink-soft);
   font-family: var(--body); font-size: 15.5px; line-height: 1.6;
@@ -339,6 +342,11 @@ a:hover { text-decoration: underline; }
 
 /* hover profile card (member tooltip) */
 [data-uprofile] { cursor: pointer; }
+/* hover cards live in a layer that covers exactly the page and clips anything outside it: a hidden card left below the
+   footer used to make every page ~240px longer (an empty strip under the footer) */
+body { position: relative; }
+#uprofile-host { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+#uprofile-host .uprofile { pointer-events: auto; }
 .uprofile { position: absolute; z-index: 200; width: 330px; background: var(--card); border: 1px solid var(--border-hi); border-radius: 12px; box-shadow: var(--pop-shadow); overflow: hidden; visibility: hidden; opacity: 0; transform: translateY(8px) scale(.98); transform-origin: top left; transition: opacity .12s ease, transform .12s ease, visibility .12s; }
 .uprofile { max-width: calc(100vw - 24px); }   /* a hidden card still counts toward page width: never wider than a small phone */
 .uprofile.show { visibility: visible; opacity: 1; transform: translateY(0) scale(1); }
@@ -441,7 +449,8 @@ a:hover { text-decoration: underline; }
 /* ---- dark footer (4 columns) ---- */
 .site-footer { background: var(--foot-bg); color: var(--foot-fg); border: 0; margin-top: 46px; padding: 40px 0 60px; }
 .foot-grid { display: grid; grid-template-columns: 1.1fr 1.3fr 1fr 1fr; gap: 34px; }
-.foot-grid.no-latest { grid-template-columns: 1.1fr 1fr 1fr; }   /* every post is already on the page: no "Latest posts" column */
+.foot-grid.no-latest { grid-template-columns: 1.1fr 1fr 1fr; }
+@media (max-width: 640px) { .foot-bottom { padding-bottom: 76px; } }   /* room under the links for the back-to-top button */   /* every post is already on the page: no "Latest posts" column */
 @media (max-width: 900px) { .foot-grid, .foot-grid.no-latest { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 560px) { .foot-grid, .foot-grid.no-latest { grid-template-columns: 1fr; } }
 .foot-col h4 { font-family: var(--pixel); color: var(--foot-hd); font-size: 15px; letter-spacing: .5px; text-transform: uppercase; margin: 0 0 16px; }
