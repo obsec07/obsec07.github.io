@@ -4,6 +4,7 @@ import CategoryRow from '../components/CategoryRow.astro';
 import ShareBar from '../components/ShareBar.astro';
 import { SITE, SECTIONS, CATEGORY_LABELS, STATIC_SITE, avatarUrl, profileAttrs, sectionId } from '../config';
 import { getCollection } from 'astro:content';
+import { readingMinutes } from '../lib/posts';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const href = (p: string) => (base + p).replace(/\/{2,}/g, '/') || '/';
@@ -21,6 +22,9 @@ function forCat(key: string) {
   return { count: items.length, latest, isNew };
 }
 const latestPosts = all.slice(0, 5);
+// "Recent posts" cards at the top of the forum list: the newest few, one click away
+const recent = all.slice(0, 3);
+const isFresh = (d: Date) => (Date.now() - d.valueOf()) / 864e5 < 21;
 
 // "Share this page" targets the public URL of the home page
 const pageUrl = new URL(href('/'), Astro.site).href;
@@ -43,7 +47,35 @@ const chevron = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" str
   </div>
 
   <div class="home">
-    <div class="col" id="forums">
+    <div class="col">
+      {recent.length > 0 && (
+        <div class="section recent" id="recent">
+          <div class="section-head" role="button" tabindex="0" aria-label="collapse Recent posts">
+            <div>
+              <h2>Recent posts</h2>
+              <span class="sub">The latest writeups, newest first.</span>
+            </div>
+            <span class="chev" set:html={chevron} />
+          </div>
+          <div class="rows"><div class="rows-inner">
+            <div class="recent-grid">
+              {recent.map((p) => (
+                <a class="recent-card" href={href('/posts/' + p.id)}>
+                  <span class="rc-top">
+                    <span class="chip">{CATEGORY_LABELS[p.data.category] ?? p.data.category}</span>
+                    {isFresh(p.data.date) && <span class="rc-new">New</span>}
+                  </span>
+                  <span class="rc-title">{p.data.title}</span>
+                  {p.data.description && <span class="rc-desc">{p.data.description}</span>}
+                  <span class="rc-meta">{fmt(p.data.date)} · {readingMinutes(p.body)} min read</span>
+                </a>
+              ))}
+            </div>
+            <a class="recent-all" href={href('/whats-new')}>All posts →</a>
+          </div></div>
+        </div>
+      )}
+      <div id="forums">
       {SECTIONS.map((sec) => (
         <div class="section" id={sectionId(sec.title)}>
           <div class="section-head" role="button" tabindex="0" aria-label={`collapse ${sec.title}`}>
@@ -62,6 +94,7 @@ const chevron = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" str
           </div></div>
         </div>
       ))}
+      </div>
     </div>
 
     <aside class="side">

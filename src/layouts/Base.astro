@@ -45,6 +45,9 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
         <a class="b" href={whoamiHref}>Learn more…</a>
       </div>
     </div>
+    <button class="to-top" id="to-top" type="button" title="Back to top" aria-label="Back to top">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 15 12 9 18 15"/></svg>
+    </button>
     <div id="uprofile-host">{STATIC_SITE ? <ProfileCard /> : <Fragment set:html={'<!--UPROFILE-->'} />}</div>
     <script is:inline>
       (function () {
@@ -53,6 +56,43 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
           var ok = document.getElementById('cookie-ok');
           if (ok) ok.addEventListener('click', function () { localStorage.setItem('cookie-ok', '1'); document.getElementById('cookie').style.display = 'none'; });
         } catch (e) {}
+      })();
+      // code blocks: a Copy button in each block's title bar (requests, payloads, commands)
+      (function () {
+        function legacyCopy(text) {
+          var ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('readonly', '');
+          ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0'; document.body.appendChild(ta); ta.select();
+          var ok = false; try { ok = document.execCommand('copy'); } catch (e) {}
+          ta.remove(); return ok;
+        }
+        document.querySelectorAll('.prose pre').forEach(function (pre) {
+          var code = pre.querySelector('code'); if (!code) return;
+          var b = document.createElement('button');
+          b.type = 'button'; b.className = 'code-copy'; b.textContent = 'Copy'; b.setAttribute('aria-label', 'Copy code');
+          b.addEventListener('click', function () {
+            var text = code.textContent.replace(/\n$/, '');
+            function done(ok) {
+              if (!ok) window.getSelection().selectAllChildren(code);   // at least select it for Ctrl+C
+              b.textContent = ok ? 'Copied!' : 'Press Ctrl+C'; b.classList.toggle('ok', ok);
+              clearTimeout(b._t); b._t = setTimeout(function () { b.textContent = 'Copy'; b.classList.remove('ok'); }, 1600);
+            }
+            if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(legacyCopy(text)); });
+            else done(legacyCopy(text));
+          });
+          pre.appendChild(b);
+        });
+      })();
+      // back to top: shows once you've scrolled a screen or so down
+      (function () {
+        var t = document.getElementById('to-top'); if (!t) return;
+        var queued = false;
+        function update() { queued = false; t.classList.toggle('show', scrollY > Math.max(600, innerHeight)); }
+        addEventListener('scroll', function () { if (!queued) { queued = true; requestAnimationFrame(update); } }, { passive: true });
+        update();
+        t.addEventListener('click', function () {
+          scrollTo({ top: 0, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+          var h = document.querySelector('.logo'); if (h) h.focus({ preventScroll: true });
+        });
       })();
       // dropdown menus: hover opens them with a mouse; a tap or click opens them too (phones have no hover, and
       // Safari doesn't focus a clicked button). On a phone the first tap on "Forums ▾" opens its menu, the second follows the link.
