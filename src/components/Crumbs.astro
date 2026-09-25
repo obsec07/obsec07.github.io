@@ -1,6 +1,7 @@
 ---
-// Breadcrumb bar, XenForo-style: Home › Forums › <section> › <category>. Every part links somewhere; only the page
-// you're on is plain text. Forums and the section jump to that spot of the forum list on the home page.
+// Breadcrumb bar, XenForo-style: ⌂ Home › Forums › <section> › <category> — the pages *above* this one, all links,
+// the last one bold. On a blog's own page it stops at the section (like 0x90: Home › Forums › Blogs).
+// Forums and the section jump to that spot of the forum list on the home page.
 import { SECTIONS, CATEGORY_LABELS, sectionId } from '../config';
 interface Props { category?: string; current?: boolean; }   // current: this is the category's own page
 const { category, current = false } = Astro.props;
@@ -10,8 +11,8 @@ const section = category ? SECTIONS.find((s) => s.items.some((i) => i.key === ca
 const label = category ? CATEGORY_LABELS[category] ?? category : '';
 ---
 <nav class="crumbs-box" aria-label="Breadcrumb">
-  <a href={href('/')}>⌂ Home</a>
+  <a href={href('/')}><svg class="crumb-home" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>Home</a>
   <span class="sep">›</span><a href={href('/#forums')}>Forums</a>
   {section && <Fragment><span class="sep">›</span><a href={href('/#' + sectionId(section.title))}>{section.title}</a></Fragment>}
-  {category && <Fragment><span class="sep">›</span>{current ? <span class="here" aria-current="page">{label}</span> : <a href={href('/' + category)}>{label}</a>}</Fragment>}
+  {category && !current && <Fragment><span class="sep">›</span><a href={href('/' + category)}>{label}</a></Fragment>}
 </nav>
