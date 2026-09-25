@@ -11,6 +11,16 @@ export default defineConfig({
   // /account and /members are empty shells the Node server fills per visitor, /admin is the CMS — nothing for search engines
   integrations: [sitemap({ filter: (page) => !/\/(account|members|admin)\/?$/.test(new URL(page).pathname) })],
   markdown: {
-    shikiConfig: { theme: 'github-light', wrap: true },
+    // long code lines scroll sideways instead of wrapping (a wrapped `charset=utf-` / `8` misreads as two lines).
+    // The <code> inside each block is what scrolls (see .prose pre code), so the "Code:" bar on the <pre> stays put;
+    // it also takes the keyboard focus stop, so arrow keys scroll it.
+    shikiConfig: {
+      theme: 'github-light',
+      wrap: false,
+      transformers: [{
+        pre(node) { delete node.properties.tabindex; },
+        code(node) { node.properties.tabindex = '0'; },
+      }],
+    },
   },
 });
