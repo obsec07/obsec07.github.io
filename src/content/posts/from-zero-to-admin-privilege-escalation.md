@@ -1,9 +1,15 @@
 ---
-title: "From Zero to Admin: How I Escalated Privileges"
-date: 2026-03-06
-category: 0day
-description: "An unauthenticated admin panel, a role field with no server-side validation, and a full administrative takeover — a beginner bug-hunting walkthrough."
-tags: [privilege-escalation, access-control, admin-panel, web, writeup]
+title: 'From Zero to Admin: How I Escalated Privileges'
+date: '2026-03-06'
+category: infosec
+description: An unauthenticated admin panel, a role field with no server-side validation, and a full administrative takeover — a beginner bug-hunting walkthrough.
+tags:
+  - privilege-escalation
+  - access-control
+  - admin-panel
+  - web
+  - writeup
+draft: false
 ---
 
 A walkthrough of how an unauthenticated admin panel, a creative hypothesis, and a role field with no validation led to full administrative takeover.
