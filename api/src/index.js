@@ -4,19 +4,22 @@
 // Public — called by the site's pages. Nothing here ever returns an IP address or someone else's guest id.
 //   GET  /health                              { ok, version }
 //   POST /hit                                 a page view: { path, ref, title, guest, lang, screen }
-//   GET  /posts/:slug?g=<guest>               { comments, likes, liked }
-//   POST /posts/:slug/comments                { guest, name, body, website (spam trap), t }; the owner adds Authorization
+//   GET  /posts/:slug?g=<guest>               { comments (newest 500), total, likes, liked, form }
+//   POST /posts/:slug/comments                { guest, name, body, form, trap }; the owner adds Authorization. `form` is the
+//                                             signed token from the GET (at least 3s old: bots have to load and wait),
+//                                             `trap` a hidden field only bots fill in
 //   POST /posts/:slug/comments/:id/delete     { guest }: your own comment (the owner: any)
 //   POST /posts/:slug/like                    { guest, like }
 //   GET  /counts?posts=a,b                    { a: { comments, likes }, … }
-// Admin — Authorization: Bearer <the GitHub token /admin signs in with>. The token is checked with GitHub (can it
-// write to the repo?) and only its SHA-256 is kept, to skip that check for the next 30 minutes.
+// Admin — Authorization: Bearer <the GitHub token /admin signs in with>. The token is checked with GitHub (its user
+// has push rights on the repo, and the token itself can write there) and only its SHA-256 is kept, to skip that check
+// for the next 30 minutes.
 //   GET  /admin/me, /admin/stats, /admin/visits, /admin/visitors, /admin/comments, /admin/blocks
 //   POST /admin/comments/:id/delete, /admin/blocks, /admin/blocks/delete
 //
 // Guests are told apart by the random id in their `guest` cookie (set by the site). IP addresses and locations come
-// from Cloudflare (CF-Connecting-IP, request.cf). Visits older than RETENTION_DAYS (default 90) are deleted daily,
-// and so are the IP addresses stored with older comments.
+// from Cloudflare (CF-Connecting-IP, request.cf). Visits older than RETENTION_DAYS (default 90) are deleted daily, and
+// so are the IP address + location stored with older comments and the IP address stored with older likes.
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS visits (
@@ -39,7 +42,9 @@ const SCHEMA = [
   'CREATE INDEX IF NOT EXISTS likes_ts ON likes (ts)',
   `CREATE TABLE IF NOT EXISTS blocks (ip TEXT PRIMARY KEY, ts INTEGER NOT NULL, note TEXT)`,
   `CREATE TABLE IF NOT EXISTS admin_tokens (hash TEXT PRIMARY KEY, until INTEGER NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)`,   // schema version, the form-token key
 ];
+const SCHEMA_VERSION = '1';
 
 const LIMITS = { name: 40, body: 2000, links: 3, perPost: 500 };
 const MIN = 60e3, HOUR = 60 * MIN, DAY = 24 * HOUR;
@@ -50,18 +55,32 @@ const json = (data, status = 200, headers = {}) =>
 const empty = () => new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
 const now = () => Date.now();
 
-// tables are created on first use (per database), so a new deploy needs no separate migration step
-const schemaReady = new WeakMap();
-function ready(env) {
-  let p = schemaReady.get(env.DB);
-  if (!p) {
-    p = env.DB.batch(SCHEMA.map((s) => env.DB.prepare(s))).catch((e) => { schemaReady.delete(env.DB); throw e; });
-    schemaReady.set(env.DB, p);
+// First request per isolate: one small read of `meta`. Only a new database (or a new SCHEMA_VERSION) runs the
+// CREATE statements, so a new deploy needs no separate migration step. Also loads the key that signs form tokens.
+const state = new WeakMap();
+const hex = (bytes) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
+async function readMeta(env) {
+  try { return Object.fromEntries((await env.DB.prepare('SELECT k, v FROM meta').all()).results.map((r) => [r.k, r.v])); } catch { return {}; }
+}
+async function init(env) {
+  let meta = await readMeta(env);
+  if (meta.schema !== SCHEMA_VERSION || !meta.form_key) {
+    await env.DB.batch([...SCHEMA.map((s) => env.DB.prepare(s)),
+      env.DB.prepare('INSERT OR IGNORE INTO meta (k, v) VALUES (?, ?)').bind('form_key', hex(crypto.getRandomValues(new Uint8Array(32)))),
+      env.DB.prepare('INSERT OR REPLACE INTO meta (k, v) VALUES (?, ?)').bind('schema', SCHEMA_VERSION)]);
+    meta = await readMeta(env);
   }
+  const raw = Uint8Array.from(meta.form_key.match(/../g), (h) => parseInt(h, 16));
+  return { formKey: await crypto.subtle.importKey('raw', raw, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']) };
+}
+function ready(env) {
+  let p = state.get(env.DB);
+  if (!p) { p = init(env).catch((e) => { state.delete(env.DB); throw e; }); state.set(env.DB, p); }
   return p;
 }
 
 async function readBody(req) {
+  if (Number(req.headers.get('content-length')) > 20000) throw new HttpError(413, 'Too long.');
   const text = await req.text();
   if (text.length > 20000) throw new HttpError(413, 'Too long.');
   try { const v = JSON.parse(text || '{}'); return v && typeof v === 'object' ? v : {}; } catch { return {}; }
@@ -93,7 +112,7 @@ function client(req) {
   };
 }
 
-// ---- which sites may call this API (the blog itself; ALLOWED_ORIGINS adds more, "*" allows any) ----
+// ---- which sites may call this API (the blog itself; ALLOWED_ORIGINS adds more, "*" allows any; none set: none) ----
 function origins(env) {
   const list = new Set();
   if (env.SITE_URL) { try { list.add(new URL(env.SITE_URL).origin); } catch {} }
@@ -103,7 +122,7 @@ function origins(env) {
 function allowedOrigin(origin, env) {
   if (!origin) return null;
   const list = origins(env);
-  return list.size === 0 || list.has('*') || list.has(origin) ? origin : null;
+  return list.has('*') || list.has(origin) ? origin : null;
 }
 
 // ---- posts that exist on the site (its /search-index.json), so nobody can comment on made-up pages ----
@@ -121,7 +140,7 @@ async function postExists(slug, env) {
   return index.slugs ? index.slugs.has(slug) : true;   // site unreachable: don't lock comments
 }
 
-// ---- the owner: a GitHub token that can write to the blog's repo (the same check /admin does at login) ----
+// ---- the owner: a GitHub token that can write to the blog's repo (the same two checks /admin does at login) ----
 const TOKEN_RE = /^(gh[pousr]_[A-Za-z0-9_]{20,255}|github_pat_[A-Za-z0-9_]{20,255})$/;
 const refused = new Map();   // hash -> until: tokens GitHub just said no to (not asked again for a minute)
 async function sha256(s) {
@@ -136,30 +155,69 @@ async function isAdmin(req, env) {
   if (row && row.until > now()) return true;
   if ((refused.get(hash) || 0) > now()) return false;
   const api = (env.GITHUB_API || 'https://api.github.com').replace(/\/+$/, '');
-  // a PUT with no file content changes nothing: 422 = this token may write here, 401/403/404 = it may not
+  const headers = { authorization: `Bearer ${m[1]}`, accept: 'application/vnd.github+json', 'content-type': 'application/json', 'user-agent': 'secblog-api' };
+  const no = () => { if (refused.size > 1000) refused.clear(); refused.set(hash, now() + MIN); return false; };
+  const odd = (status) => new HttpError(502, `Couldn't check your sign-in with GitHub (${status}). Try again in a minute.`);
+  // 1. whose token is it: they must be allowed to push to the repo (any GitHub user's token can read a public repo)
+  const repo = await fetch(`${api}/repos/${env.GITHUB_REPO}`, { headers });
+  if ([401, 403, 404].includes(repo.status)) return no();
+  if (!repo.ok) throw odd(repo.status);
+  const perms = (await repo.json().catch(() => ({}))).permissions || {};
+  if (!(perms.push || perms.maintain || perms.admin)) return no();
+  // 2. can this token write: a PUT with no file content changes nothing; 422 = allowed, 401/403/404 = not
   const r = await fetch(`${api}/repos/${env.GITHUB_REPO}/contents/src/content/posts/.admin-write-check`, {
-    method: 'PUT',
-    headers: { authorization: `Bearer ${m[1]}`, accept: 'application/vnd.github+json', 'content-type': 'application/json', 'user-agent': 'secblog-api' },
-    body: JSON.stringify({ message: 'write check', branch: 'main' }),
+    method: 'PUT', headers, body: JSON.stringify({ message: 'write check', branch: 'main' }),
   });
   if (r.status === 422) {
     await env.DB.prepare('INSERT OR REPLACE INTO admin_tokens (hash, until) VALUES (?, ?)').bind(hash, now() + 30 * MIN).run();
     return true;
   }
-  if ([401, 403, 404].includes(r.status)) { if (refused.size > 1000) refused.clear(); refused.set(hash, now() + MIN); return false; }
-  throw new HttpError(502, `Couldn't check your sign-in with GitHub (${r.status}). Try again in a minute.`);
+  if ([401, 403, 404].includes(r.status)) return no();
+  throw odd(r.status);
 }
 async function needAdmin(req, env) {
   if (!(await isAdmin(req, env))) throw new HttpError(401, 'Your admin sign-in was not accepted. Log out of /admin and in again.');
+}
+
+// short bursts per IP, in this isolate's memory: likes and deletes write to the database, so they're capped too
+const bursts = new Map();
+function burst(kind, ip, max, ms) {
+  if (!ip) return false;
+  const k = `${kind}:${ip}`, t = now();
+  let e = bursts.get(k);
+  if (!e || t - e.at > ms) { if (bursts.size > 5000) bursts.clear(); e = { at: t, n: 0 }; bursts.set(k, e); }
+  return ++e.n > max;
+}
+
+// ---- form tokens: GET /posts/:slug hands one out; a reply must bring it back, at least 3 seconds later ----
+const b64url = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const unb64url = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+const enc = new TextEncoder();
+async function formToken(env, slug) {
+  const { formKey } = await ready(env), ts = now();
+  return `${ts}.${b64url(await crypto.subtle.sign('HMAC', formKey, enc.encode(`${slug}.${ts}`)))}`;
+}
+async function checkForm(env, slug, token) {
+  const m = /^(\d{13})\.([A-Za-z0-9_-]{43})$/.exec(typeof token === 'string' ? token : '');
+  const { formKey } = await ready(env), sig = m && unb64url(m[2]);
+  // exactly the spelling we handed out (the last base64 character has spare bits that decode the same)
+  if (!m || b64url(sig) !== m[2] || !(await crypto.subtle.verify('HMAC', formKey, sig, enc.encode(`${slug}.${m[1]}`)))) throw new HttpError(400, 'Reload the page and try again.');
+  const age = now() - Number(m[1]);
+  if (age < 3000) throw new HttpError(400, 'That was quick! Wait a moment and post again.');
+  if (age > DAY) throw new HttpError(400, 'This page has been open a long time. Reload it and post again.');
 }
 
 const isBlocked = async (env, ip) => !!ip && !!(await env.DB.prepare('SELECT 1 x FROM blocks WHERE ip = ?').bind(ip).first());
 async function count(env, sql, ...args) { return (await env.DB.prepare(sql).bind(...args).first()).n; }
 
 // ---- page views ----
+// a path on this site only: '/\\evil.com' or '/<tab>/evil.com' would become //evil.com in a link, so anything with a
+// backslash, whitespace or a control character is dropped, and what's kept is the parsed, percent-encoded path
 function cleanPath(p) {
-  if (typeof p !== 'string' || !p.startsWith('/') || p.startsWith('//')) return '';
-  return p.split(/[?#]/)[0].slice(0, 300);
+  if (typeof p !== 'string' || !/^\/(?!\/)/.test(p) || /[\\\s\u0000-\u001f\u007f]/.test(p)) return '';
+  let u;
+  try { u = new URL(p, 'https://site.invalid'); } catch { return ''; }
+  return u.origin === 'https://site.invalid' && !u.pathname.startsWith('//') ? u.pathname.slice(0, 300) : '';
 }
 function externalRef(ref, env) {
   let u;
@@ -189,12 +247,17 @@ function cleanText(s) {
 }
 async function listComments(req, env, slug) {
   const guest = new URL(req.url).searchParams.get('g') || '';
-  const [comments, likes, liked] = await env.DB.batch([
-    env.DB.prepare('SELECT id, name, body, ts, owner, guest FROM comments WHERE post = ? ORDER BY ts, id LIMIT ?').bind(slug, LIMITS.perPost),
+  const [comments, total, likes, liked] = await env.DB.batch([
+    env.DB.prepare('SELECT id, name, body, ts, owner, guest FROM comments WHERE post = ? ORDER BY ts DESC, id DESC LIMIT ?').bind(slug, LIMITS.perPost),
+    env.DB.prepare('SELECT COUNT(*) n FROM comments WHERE post = ?').bind(slug),
     env.DB.prepare('SELECT COUNT(*) n FROM likes WHERE post = ?').bind(slug),
     env.DB.prepare('SELECT COUNT(*) n FROM likes WHERE post = ? AND guest = ?').bind(slug, isGuest(guest) ? guest : ''),
   ]);
-  return json({ comments: comments.results.map((r) => shape(r, isGuest(guest) ? guest : '')), likes: likes.results[0].n, liked: liked.results[0].n > 0 });
+  return json({
+    comments: comments.results.reverse().map((r) => shape(r, isGuest(guest) ? guest : '')),   // the newest, oldest first
+    total: total.results[0].n, likes: likes.results[0].n, liked: liked.results[0].n > 0,
+    form: SLUG_RE.test(slug) ? await formToken(env, slug) : null,
+  });
 }
 async function addComment(req, env, slug) {
   const b = await readBody(req), c = client(req), admin = await isAdmin(req, env);
@@ -202,8 +265,8 @@ async function addComment(req, env, slug) {
   if (!admin && req.headers.get('authorization')) throw new HttpError(401, 'Your admin sign-in has expired. Log in to /admin again, then post.');
   if (!admin) {
     if (!isGuest(b.guest)) throw new HttpError(400, 'Reload the page and try again.');
-    if (b.website) throw new HttpError(400, 'Your comment was flagged as spam.');   // hidden field only bots fill in
-    if (!(Number(b.t) >= 2000)) throw new HttpError(400, 'That was quick! Wait a moment and post again.');
+    if (b.trap || b.website) throw new HttpError(400, 'Your comment was flagged as spam.');   // hidden field only bots fill in
+    await checkForm(env, slug, b.form);
     if (await isBlocked(env, c.ip)) throw new HttpError(403, "Comments from your network aren't allowed.");
     if (!name) throw new HttpError(400, 'Enter a name.');
     if (env.OWNER_NAME && name.toLowerCase() === String(env.OWNER_NAME).trim().toLowerCase()) throw new HttpError(400, 'That name belongs to the site owner. Pick another.');
@@ -227,6 +290,7 @@ async function addComment(req, env, slug) {
 }
 async function deleteComment(req, env, slug, id) {
   const b = await readBody(req);
+  if (burst('delete', client(req).ip, 20, MIN)) throw new HttpError(429, 'Too many deletes. Try again in a minute.');
   const row = await env.DB.prepare('SELECT id, guest FROM comments WHERE id = ? AND post = ?').bind(id, slug).first();
   if (!row) throw new HttpError(404, 'That comment is already gone.');
   const own = isGuest(b.guest) && row.guest === b.guest;
@@ -237,6 +301,7 @@ async function deleteComment(req, env, slug, id) {
 async function like(req, env, slug) {
   const b = await readBody(req), c = client(req);
   if (!isGuest(b.guest)) throw new HttpError(400, 'Reload the page and try again.');
+  if (burst('like', c.ip, 30, MIN)) throw new HttpError(429, 'Too many likes. Try again in a minute.');
   if (await isBlocked(env, c.ip)) throw new HttpError(403, "Likes from your network aren't allowed.");
   if (!(await postExists(slug, env))) throw new HttpError(404, "That post doesn't exist.");
   if (b.like) {
@@ -269,13 +334,20 @@ async function counts(req, env) {
 // ---- admin ----
 const WHO = "COALESCE(guest, 'ip:' || ip)";   // a visitor: their guest cookie, or their IP when they had none
 function range(url) {
-  const days = [1, 7, 30, 90].includes(Number(url.searchParams.get('days'))) ? Number(url.searchParams.get('days')) : 7;
-  const tzo = Math.max(-840, Math.min(840, Math.trunc(Number(url.searchParams.get('tzo')) || 0)));   // the admin's UTC offset, minutes
-  return { days, since: now() - days * DAY, tzo };
+  const p = url.searchParams;
+  const days = [1, 7, 30, 90].includes(Number(p.get('days'))) ? Number(p.get('days')) : 7;
+  // the admin's UTC offset in minutes for each stretch of the range ("start:offset,…", so days stay right across a
+  // daylight-saving change), or one offset (tzo). Validated whole numbers, so they can go into the SQL as they are.
+  const segs = String(p.get('tz') || '').split(',').map((x) => x.split(':').map(Number))
+    .filter(([t, o]) => Number.isSafeInteger(t) && Number.isInteger(o) && Math.abs(o) <= 840).slice(0, 8).sort((a, b) => a[0] - b[0]);
+  const tzo = Math.max(-840, Math.min(840, Math.trunc(Number(p.get('tzo')) || 0)));
+  const offset = segs.length ? segs.slice(1).reduce((acc, [t, o]) => `CASE WHEN ts >= ${t} THEN ${o} ELSE ${acc} END`, String(segs[0][1])) : String(tzo);
+  return { days, since: now() - days * DAY, offset };
 }
 async function stats(req, env) {
-  const url = new URL(req.url), { days, since, tzo } = range(url);
-  const bucket = days === 1 ? `strftime('%Y-%m-%d %H:00', ts / 1000 + ${tzo * 60}, 'unixepoch')` : `date(ts / 1000 + ${tzo * 60}, 'unixepoch')`;
+  const url = new URL(req.url), { days, since, offset } = range(url);
+  // 24 hours: by UTC hour (the page labels each one in local time); longer: by the admin's local day
+  const bucket = days === 1 ? 'ts / 3600000' : `date(ts / 1000 + (${offset}) * 60, 'unixepoch')`;
   const V = `FROM visits WHERE ts > ? AND bot = 0`;
   const top = (col, extra = '') => env.DB.prepare(`SELECT ${col}, COUNT(*) views, COUNT(DISTINCT ${WHO}) visitors ${V} ${extra} GROUP BY ${col} ORDER BY visitors DESC, views DESC LIMIT 10`).bind(since);
   const q = [
@@ -293,7 +365,7 @@ async function stats(req, env) {
   ];
   const [tot, live, cm, lk, bots, series, pages, countries, cities, refs, browsers, oses, devices] = (await env.DB.batch(q)).map((r) => r.results);
   return json({
-    days, tzo, views: tot[0].views, visitors: tot[0].visitors, live: live[0].n, comments: cm[0].n, likes: lk[0].n, bots: bots[0].n,
+    days, views: tot[0].views, visitors: tot[0].visitors, live: live[0].n, comments: cm[0].n, likes: lk[0].n, bots: bots[0].n,
     series, pages, countries, cities, referrers: refs, browsers, os: oses, devices,
   });
 }
@@ -349,16 +421,17 @@ async function unblock(req, env) {
   return json({ ok: true });
 }
 
+const param = (s) => { try { return decodeURIComponent(s); } catch { throw new HttpError(400, 'Bad address.'); } };
 async function route(req, env) {
   const url = new URL(req.url), path = url.pathname.replace(/\/+$/, '') || '/', M = req.method;
   let m;
   if (path === '/health' && M === 'GET') return json({ ok: true, version: env.API_VERSION || 'dev' });
   if (path === '/hit' && M === 'POST') return hit(req, env);
   if (path === '/counts' && M === 'GET') return counts(req, env);
-  if ((m = /^\/posts\/([^/]+)$/.exec(path)) && M === 'GET') return listComments(req, env, decodeURIComponent(m[1]));
-  if ((m = /^\/posts\/([^/]+)\/comments$/.exec(path)) && M === 'POST') return addComment(req, env, decodeURIComponent(m[1]));
-  if ((m = /^\/posts\/([^/]+)\/comments\/(\d+)\/delete$/.exec(path)) && M === 'POST') return deleteComment(req, env, decodeURIComponent(m[1]), Number(m[2]));
-  if ((m = /^\/posts\/([^/]+)\/like$/.exec(path)) && M === 'POST') return like(req, env, decodeURIComponent(m[1]));
+  if ((m = /^\/posts\/([^/]+)$/.exec(path)) && M === 'GET') return listComments(req, env, param(m[1]));
+  if ((m = /^\/posts\/([^/]+)\/comments$/.exec(path)) && M === 'POST') return addComment(req, env, param(m[1]));
+  if ((m = /^\/posts\/([^/]+)\/comments\/(\d+)\/delete$/.exec(path)) && M === 'POST') return deleteComment(req, env, param(m[1]), Number(m[2]));
+  if ((m = /^\/posts\/([^/]+)\/like$/.exec(path)) && M === 'POST') return like(req, env, param(m[1]));
   if (path.startsWith('/admin/')) {
     await needAdmin(req, env);
     if (path === '/admin/me' && M === 'GET') return json({ ok: true, version: env.API_VERSION || 'dev', retentionDays: Number(env.RETENTION_DAYS) || 90 });
@@ -397,13 +470,14 @@ export default {
     for (const [k, v] of Object.entries(cors)) res.headers.set(k, v);
     return res;
   },
-  // daily clean-up: old visits, the IP addresses kept with old comments, expired admin sign-ins
+  // daily clean-up: old visits, the IP address + location kept with old comments and likes, expired admin sign-ins
   async scheduled(_event, env) {
     await ready(env);
     const cutoff = now() - (Number(env.RETENTION_DAYS) || 90) * DAY;
     await env.DB.batch([
       env.DB.prepare('DELETE FROM visits WHERE ts < ?').bind(cutoff),
-      env.DB.prepare('UPDATE comments SET ip = NULL WHERE ts < ? AND ip IS NOT NULL').bind(cutoff),
+      env.DB.prepare('UPDATE comments SET ip = NULL, country = NULL, region = NULL, city = NULL WHERE ts < ? AND (ip IS NOT NULL OR country IS NOT NULL OR region IS NOT NULL OR city IS NOT NULL)').bind(cutoff),
+      env.DB.prepare('UPDATE likes SET ip = NULL WHERE ts < ? AND ip IS NOT NULL').bind(cutoff),
       env.DB.prepare('DELETE FROM admin_tokens WHERE until < ?').bind(now()),
     ]);
   },

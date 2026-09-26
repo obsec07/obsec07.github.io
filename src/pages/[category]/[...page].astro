@@ -109,9 +109,13 @@ const blogTags = [...new Set((await publishedPosts()).filter((p) => p.data.categ
         rowsNow.forEach(function (r) { if (!(r.dataset.post in counts)) want.push(r.dataset.post); });
         function show() { rowsNow.forEach(function (r) { var c = counts[r.dataset.post], d = r.querySelector('.tl-rep'); if (c && d) d.textContent = String(c.comments); }); }
         if (!want.length) return show();
-        fetch(box.dataset.api + '/counts?posts=' + want.map(encodeURIComponent).join(','))
-          .then(function (r) { return r.ok ? r.json() : {}; })
-          .then(function (d) { for (var k in d) counts[k] = d[k]; show(); }).catch(function () {});
+        var asks = [];   // the API answers 60 posts at a time; a filtered list can hold more
+        for (var i = 0; i < want.length; i += 50) {
+          asks.push(fetch(box.dataset.api + '/counts?posts=' + want.slice(i, i + 50).map(encodeURIComponent).join(','))
+            .then(function (r) { return r.ok ? r.json() : {}; })
+            .then(function (d) { for (var k in d) counts[k] = d[k]; }).catch(function () {}));
+        }
+        Promise.all(asks).then(show);
       }
       fillCounts();
 

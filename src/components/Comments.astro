@@ -21,8 +21,8 @@ const { slug } = Astro.props;
         <input type="text" name="name" maxlength="40" autocomplete="nickname" placeholder="Your name" required />
       </label>
       <label><span class="sr">Your reply</span><textarea name="body" rows="4" maxlength="2000" placeholder="Write your reply…" required></textarea></label>
-      <!-- spam trap: hidden from people, filled in by bots -->
-      <label class="reply-trap" aria-hidden="true">Website <input type="text" name="website" tabindex="-1" autocomplete="off" /></label>
+      <!-- spam trap: bots fill in every field; people never see this one (display:none, so autofill skips it too) -->
+      <div class="reply-trap" aria-hidden="true"><label>Leave this empty <input type="text" name="leave_empty" tabindex="-1" autocomplete="off" /></label></div>
       <div class="reply-actions">
         <span class="reply-err" id="reply-err" role="alert"></span>
         <span class="reply-hint" id="reply-hint">No account needed. Your name and reply are public.</span>
@@ -41,11 +41,11 @@ const { slug } = Astro.props;
   if (box && box.dataset.api) {
     const API = box.dataset.api, SLUG = box.dataset.slug!, OWNER = box.dataset.owner!;
     const $ = (id: string) => document.getElementById(id)!;
-    const list = $('reply-list'), form = $('reply-form') as HTMLFormElement, err = $('reply-err');
-    const f = form.elements as unknown as Record<string, HTMLInputElement & HTMLTextAreaElement>;
-    const shownAt = Date.now();
+    const list = $('reply-list'), formEl = $('reply-form') as HTMLFormElement, err = $('reply-err');
+    const f = formEl.elements as unknown as Record<string, HTMLInputElement & HTMLTextAreaElement>;
     type Comment = { id: number; name: string; body: string; ts: number; owner: boolean; mine: boolean };
-    let comments: Comment[] = [], likes = 0, liked = false;
+    // total: all replies (the API sends the newest 500); form: the signed token a reply has to bring back
+    let comments: Comment[] = [], total = 0, likes = 0, liked = false, form = '', formAt = 0;
 
     // the guest id from the cookie (Base.astro sets it before this runs; made here too, just in case)
     function guest() {
@@ -112,8 +112,9 @@ const { slug } = Astro.props;
       return li;
     }
     function render() {
-      list.replaceChildren(...comments.map((c, i) => item(c, i + 1)));
-      $('replies-n').textContent = comments.length ? `(${comments.length})` : '';
+      const first = total - comments.length;   // replies older than the newest 500 aren't shown, but still counted
+      list.replaceChildren(...comments.map((c, i) => item(c, first + i + 1)));
+      $('replies-n').textContent = total ? `(${total})` : '';
       $('reply-empty').hidden = comments.length > 0;
     }
     function renderLike() {
@@ -137,27 +138,42 @@ const { slug } = Astro.props;
     try { f.name.value = localStorage.getItem('guest-name') || ''; } catch {}
     f.name.addEventListener('input', () => { if (!adminToken()) $('reply-form-av').replaceWith(Object.assign(avatar(f.name.value || '?', false), { id: 'reply-form-av' })); });
     formMode();
+    // signed in or out: /admin sends adm:session, the header's log-out button adm:signout, other tabs a storage event
     document.addEventListener('adm:session', () => { formMode(); render(); });
+    document.addEventListener('adm:signout', () => { formMode(); render(); });
     window.addEventListener('storage', (e) => { if (!e.key || e.key === 'adm') { formMode(); render(); } });
 
-    call(`/posts/${encodeURIComponent(SLUG)}?g=${G}`).then((d) => {
-      comments = d.comments; likes = d.likes; liked = d.liked;
+    const load = () => call(`/posts/${encodeURIComponent(SLUG)}?g=${G}`).then((d) => {
+      comments = d.comments; total = d.total ?? d.comments.length; likes = d.likes; liked = d.liked; form = d.form || ''; formAt = Date.now();
+      return d;
+    });
+    load().then(() => {
       render(); renderLike(); box.hidden = false;
       if (/^#comment-\d+$/.test(location.hash)) document.querySelector(location.hash)?.scrollIntoView();
     }).catch(() => {});   // API unreachable: no replies section, no Like button
 
-    form.addEventListener('submit', async (e) => {
+    formEl.addEventListener('submit', async (e) => {
       e.preventDefault();
       err.textContent = '';
       const owner = !!adminToken(), name = f.name.value.trim(), body = f.body.value.trim();
       if (!owner && !name) { err.textContent = 'Enter your name.'; f.name.focus(); return; }
       if (!body) { err.textContent = 'Write something first.'; f.body.focus(); return; }
-      const btn = form.querySelector('button[type=submit]') as HTMLButtonElement;
+      const btn = formEl.querySelector('button[type=submit]') as HTMLButtonElement;
       btn.disabled = true;
       try {
-        const d = await call(`/posts/${encodeURIComponent(SLUG)}/comments`, { guest: G, name: owner ? OWNER : name, body, website: f.website.value, t: Date.now() - shownAt });
+        if (!form || Date.now() - formAt > 12 * 3600e3) await load();   // the token lasts a day: fetch a fresh one
+        // the API only takes a token that's 3+ seconds old (bots have to load the page and wait): wait out the rest
+        const send = async () => {
+          const wait = formAt + 3200 - Date.now();
+          if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+          return call(`/posts/${encodeURIComponent(SLUG)}/comments`, { guest: G, name: owner ? OWNER : name, body, form, trap: f.leave_empty.value });
+        };
+        let d;
+        try { d = await send(); }
+        catch (x) { if (!/Reload the page/.test((x as Error).message)) throw x; await load(); render(); d = await send(); }   // e.g. the key changed
         if (!owner) try { localStorage.setItem('guest-name', name); } catch {}
-        comments.push(d.comment); render();
+        if (!comments.some((c) => c.id === d.comment.id)) { comments.push(d.comment); total++; }
+        render();
         f.body.value = '';
         const li = document.getElementById(`comment-${d.comment.id}`)!;
         li.classList.add('reply-new'); li.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -170,12 +186,12 @@ const { slug } = Astro.props;
         const at = `@${b.dataset.at} `;
         if (!f.body.value.startsWith(at)) f.body.value = at + f.body.value;
         f.body.focus(); f.body.setSelectionRange(f.body.value.length, f.body.value.length);
-        form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        formEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
       if (b.dataset.del) {
         if (!confirm('Delete this reply?')) return;
         b.disabled = true;
-        try { await call(`/posts/${encodeURIComponent(SLUG)}/comments/${b.dataset.del}/delete`, { guest: G }); comments = comments.filter((c) => String(c.id) !== b.dataset.del); render(); }
+        try { await call(`/posts/${encodeURIComponent(SLUG)}/comments/${b.dataset.del}/delete`, { guest: G }); comments = comments.filter((c) => String(c.id) !== b.dataset.del); total--; render(); }
         catch (x) { alert((x as Error).message); b.disabled = false; }
       }
     });

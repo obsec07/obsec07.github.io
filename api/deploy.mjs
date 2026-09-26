@@ -5,7 +5,8 @@
 //     and redeploys only when the API's code or settings changed (the running version is asked first).
 //     The D1 database is created on the first deploy; its tables are created by the Worker itself.
 // Outputs (GITHUB_OUTPUT): url = the API's address, or empty; state = off | ok | error.
-// If an update fails, the version already running stays in use, so the site keeps its comments.
+// If an update fails, or Cloudflare can't be reached, the version already running stays in use (its address is read
+// from the live site if need be), so the site keeps its comments.
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync, writeFileSync, rmSync, appendFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -24,14 +25,31 @@ const output = (k, v) => (env.GITHUB_OUTPUT ? appendFileSync(env.GITHUB_OUTPUT, 
 const summary = (md) => env.GITHUB_STEP_SUMMARY && appendFileSync(env.GITHUB_STEP_SUMMARY, md + '\n');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Cloudflare API call; timeouts, 5xx and 429 are retried twice (2s, then 4s later)
 async function cf(p, init = {}) {
-  const r = await fetch(CF + p, { ...init, signal: AbortSignal.timeout(20e3), headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' } });
+  let r;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      r = await fetch(CF + p, { ...init, signal: AbortSignal.timeout(20e3), headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' } });
+      if (r.status < 500 && r.status !== 429) break;
+      if (attempt >= 2) break;
+    } catch (e) { if (attempt >= 2) throw new Error(`Couldn't reach Cloudflare (${e.message}).`); }
+    await sleep((Number(env.RETRY_MS) || 2000) * 2 ** attempt);
+  }
   const j = await r.json().catch(() => ({}));
   if (!r.ok || j.success === false) {
     const why = (j.errors || []).map((e) => `${e.code}: ${e.message}`).join('; ');
     throw Object.assign(new Error(`Cloudflare said ${r.status} to ${init.method || 'GET'} ${p.replace(/\/accounts\/[^/]+/, '/accounts/…')}${why ? ` (${why})` : ''}`), { status: r.status, codes: (j.errors || []).map((e) => e.code) });
   }
   return j.result;
+}
+// the API address the live site is using right now (<body data-api="…">), for when Cloudflare can't tell us
+async function liveUrl() {
+  try {
+    const html = await (await fetch(env.SITE_URL, { signal: AbortSignal.timeout(15e3), headers: { 'cache-control': 'no-cache' } })).text();
+    const m = /<body[^>]*\sdata-api="(https?:\/\/[^"]+)"/.exec(html);
+    return m ? m[1] : '';
+  } catch { return ''; }
 }
 async function health(url) {
   try {
@@ -84,6 +102,7 @@ async function main() {
 
   let url = '', running = null;
   try {
+    if (!vars.SITE_URL) throw new Error('SITE_URL is missing (the blog\'s address, from actions/configure-pages).');
     const acc = await account();
     url = URL_TEMPLATE.replace('{name}', NAME).replace('{sub}', await subdomain(acc));
     running = await health(url);
@@ -115,7 +134,9 @@ async function main() {
   } catch (e) {
     console.log(`::error::Comments & stats API: ${e.message}`);
     summary(`**Comments & stats API failed:** ${e.message}`);
+    if (!url && vars.SITE_URL) url = await liveUrl();          // Cloudflare down before we learned the address
     const keep = url && (running || (await health(url)));   // the version already running keeps working
+    if (keep) console.log(`Keeping the API that's running at ${url}.`);
     output('url', keep ? url : ''); output('state', keep ? 'ok' : 'error');
   }
 }

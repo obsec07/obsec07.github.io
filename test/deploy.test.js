@@ -19,6 +19,8 @@ before(async () => {
     const ok = (result) => send(200, { success: true, result });
     const u = new URL(req.url, 'http://x'), p = u.pathname;
     cf.calls.push(`${req.method} ${p}`);
+    if (p === '/site/') { res.writeHead(200, { 'content-type': 'text/html' }); return res.end(`<html><body${cf.liveApi ? ` data-api="${cf.liveApi}"` : ''}><h1>blog</h1></body></html>`); }
+    if (cf.down && p.startsWith('/client/')) return send(503, { success: false, errors: [{ code: 10013, message: 'Service unavailable' }] });
     if (req.headers.authorization !== 'Bearer cf-token' && p.startsWith('/client/')) return send(403, { success: false, errors: [{ code: 10000, message: 'Authentication error' }] });
     if (p === '/client/v4/accounts') return ok([{ id: 'acc1', name: 'Me' }]);
     if (p === '/client/v4/accounts/acc1/workers/subdomain') {
@@ -38,14 +40,14 @@ before(async () => {
   base = `http://127.0.0.1:${server.address().port}`;
 });
 after(() => { server.close(); rmSync(tmp, { recursive: true, force: true }); });
-beforeEach(() => { cf = { calls: [], sub: null, db: null, running: null, taken: [] }; rmSync(LOG, { force: true }); });
+beforeEach(() => { cf = { calls: [], sub: null, db: null, running: null, taken: [], down: false, liveApi: '' }; rmSync(LOG, { force: true }); });
 
 function deploy(extra = {}) {
   const out = path.join(tmp, `out-${Math.random()}`);
   const child = spawn(process.execPath, [path.join(ROOT, 'api/deploy.mjs')], {
     env: { PATH: process.env.PATH, CLOUDFLARE_API_TOKEN: 'cf-token', CF_API: `${base}/client/v4`, WORKERS_DEV_URL: `${base}/w/{name}/{sub}`,
-      WRANGLER_CMD: `"${process.execPath}" "${path.join(ROOT, 'test/fake-wrangler.mjs')}"`, FAKE_WRANGLER_LOG: LOG, HEALTH_WAIT_MS: '20',
-      GITHUB_OUTPUT: out, GITHUB_REPOSITORY: 'obsec07/obsec07.github.io', GITHUB_REPOSITORY_OWNER: 'Obsec07', SITE_URL: 'https://obsec07.github.io/', ...extra },
+      WRANGLER_CMD: `"${process.execPath}" "${path.join(ROOT, 'test/fake-wrangler.mjs')}"`, FAKE_WRANGLER_LOG: LOG, HEALTH_WAIT_MS: '20', RETRY_MS: '20',
+      GITHUB_OUTPUT: out, GITHUB_REPOSITORY: 'obsec07/obsec07.github.io', GITHUB_REPOSITORY_OWNER: 'Obsec07', SITE_URL: `${base}/site/`, ...extra },
   });
   let log = ''; child.stdout.on('data', (d) => (log += d)); child.stderr.on('data', (d) => (log += d));
   return new Promise((resolve) => child.on('close', (code) => {
@@ -71,7 +73,7 @@ test('first deploy: registers a workers.dev name, creates the database, deploys 
   assert.equal(cfg.d1_databases[0].database_id, 'db-uuid-1');
   assert.equal(cfg.main, 'src/index.js');
   assert.match(cfg.compatibility_date, /^\d{4}-\d{2}-\d{2}$/);
-  assert.equal(cfg.vars.SITE_URL, 'https://obsec07.github.io');
+  assert.equal(cfg.vars.SITE_URL, `${base}/site`);
   assert.equal(cfg.vars.GITHUB_REPO, 'obsec07/obsec07.github.io');
   assert.equal(cfg.vars.OWNER_NAME, JSON.parse(readFileSync(path.join(ROOT, 'src/data/settings.json'), 'utf8')).handle);
   assert.match(cfg.vars.API_VERSION, /^[0-9a-f]{12}$/);
@@ -100,4 +102,23 @@ test('a failed first deploy leaves the API off and says why', async () => {
   const bad = await deploy({ CLOUDFLARE_API_TOKEN: 'wrong' });
   assert.deepEqual(bad.outputs, { url: '', state: 'error' });
   assert.match(bad.log, /::error::.*403.*Authentication error/);
+});
+
+test('Cloudflare down: retried, then the API the live site already uses is kept', async () => {
+  cf.down = true; cf.sub = 'obsec07'; cf.running = 'oldversion00'; cf.liveApi = `${base}/w/secblog-api/obsec07`;
+  const r = await deploy();
+  assert.deepEqual(r.outputs, { url: `${base}/w/secblog-api/obsec07`, state: 'ok' });
+  assert.equal(cf.calls.filter((c) => c === 'GET /client/v4/accounts').length, 3);   // 1 try + 2 retries
+  assert.match(r.log, /Keeping the API/);
+  cf.liveApi = '';   // nothing running yet: stays off, and says why
+  const off = await deploy();
+  assert.deepEqual(off.outputs, { url: '', state: 'error' });
+  assert.match(off.log, /::error::.*503/);
+});
+
+test('no site address: refuses to deploy an API that no site could use', async () => {
+  const r = await deploy({ SITE_URL: '' });
+  assert.deepEqual(r.outputs, { url: '', state: 'error' });
+  assert.match(r.log, /SITE_URL is missing/);
+  assert.ok(!existsSync(LOG));
 });

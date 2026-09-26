@@ -15,7 +15,7 @@ const actions = `https://github.com/${repo}/actions/workflows/pages.yml`;
     <li>Create a free account at <a href="https://dash.cloudflare.com/sign-up" target="_blank" rel="noopener">dash.cloudflare.com</a> (no card needed) and verify your email.</li>
     <li>In Cloudflare open <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank" rel="noopener">My Profile → API Tokens</a> → <b>Create Token</b> → <b>Edit Cloudflare Workers</b> → Use template. Under Permissions press <b>+ Add more</b> and pick <b>Account · D1 · Edit</b>. Then <b>Continue to summary</b> → <b>Create Token</b>, and copy the token.</li>
     <li>On GitHub open <a href={`https://github.com/${repo}/settings/secrets/actions/new`} target="_blank" rel="noopener">Settings → Secrets → Actions → New repository secret</a>. Name: <code>CLOUDFLARE_API_TOKEN</code>. Secret: the token. Press <b>Add secret</b>.</li>
-    <li>Come back here and press <button type="button" class="save-btn st-connect">Connect now</button> The site rebuilds with the server in about 2 minutes. Then reload this page.</li>
+    <li>Come back here and press <button type="button" class="save-btn st-connect">Connect now</button> It redeploys the site (by saving a tiny file, <code>api/.redeploy</code>, like saving a post does), which sets up the server. About 2 minutes later reload this page.</li>
   </ol>
   <p class="st-connect-msg" role="status"></p>
   <p class="st-note">The server stores visits for 90 days. Visitors are told about it in the cookie notice and on the <a href={`${import.meta.env.BASE_URL.replace(/\/$/, '')}/privacy`}>Privacy</a> page.</p>

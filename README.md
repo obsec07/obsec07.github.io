@@ -136,8 +136,9 @@ once. It works from a phone:
    **+ Add more → Account · D1 · Edit**. Continue to summary → Create Token, and copy it.
 3. This repo → **Settings → Secrets and variables → Actions → New repository secret**:
    name `CLOUDFLARE_API_TOKEN`, value the token.
-4. `/admin` → Analytics → **Connect now** (or Actions → Deploy to GitHub Pages → Run workflow, or save any
-   post). About 2 minutes later the site has replies and likes, and `/admin` has the stats.
+4. `/admin` → Analytics → **Connect now**. It redeploys the site by saving a tiny file (`api/.redeploy`),
+   the same way saving a post does (or: Actions → Deploy to GitHub Pages → Run workflow). About 2 minutes
+   later the site has replies and likes, and `/admin` has the stats.
 
 The first deploy picks a `<name>.workers.dev` address for the account if it has none, creates the database
 and deploys the Worker. Later deploys only redeploy it when `api/` or the settings it uses (site address,
@@ -150,15 +151,18 @@ How it works:
   delete their own replies and counts unique visitors. Each page view is recorded with the visitor's IP
   address, Cloudflare's location for it (country, region, city, network), browser, OS, device, screen
   size, language and the site they came from. Bots and crawlers are counted separately; your own visits
-  while signed in to `/admin` aren't counted. Visits are deleted after 90 days, and so are the IP
-  addresses stored with replies.
+  while signed in to `/admin` aren't counted. Visits are deleted after 90 days, and so are the IP address
+  and location stored with replies and the IP address stored with likes (used for the spam limits).
 - **Replies** are plain text with the guest's chosen name and a letter avatar. Spam protection: a hidden
-  field bots fill in, a minimum time on the page, at most 3 replies per 2 minutes and 20 a day per IP,
+  field bots fill in, a signed form token from the page that must be at least 3 seconds old (so scripts
+  can't post without loading the page and waiting), at most 3 replies per 2 minutes and 20 a day per IP,
   at most 3 links, no duplicates, no replies to posts that don't exist, and IP blocks from `/admin`.
+  Posts show their newest 500 replies.
   Guests can't use your username. Signed in to `/admin`, you reply as the author (your photo and an
   **Author** badge) and can delete any reply right on the post.
 - **Privacy:** IP addresses and locations are only ever shown in `/admin`. The server checks your GitHub
-  token for that, the same way `/admin` does at login. The cookie notice mentions the tracking and links
+  token for that the way `/admin` does at login (its user must have push rights on this repo, and the
+  token must be able to write to it) and keeps only a hash of it for 30 minutes. The cookie notice mentions the tracking and links
   to a `/privacy` page that explains it.
 - To turn it all off, delete the `CLOUDFLARE_API_TOKEN` secret: the next deploy builds the site without
   replies, likes or tracking. The data stays in Cloudflare (Workers & Pages → `secblog-api`, and D1 →
