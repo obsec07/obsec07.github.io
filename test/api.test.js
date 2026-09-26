@@ -9,6 +9,7 @@ import { d1 } from './d1.js';
 const SITE = 'https://blog.example';
 const GOOD = 'github_pat_' + 'A'.repeat(40), BAD = 'github_pat_' + 'B'.repeat(40);
 const READER = 'ghp_' + 'R'.repeat(36);   // someone else's valid token: GitHub lets it read the public repo, not push
+const FINE = 'github_pat_' + 'F'.repeat(40);   // the owner's token, with GitHub leaving out the permissions field
 const G1 = 'a'.repeat(32), G2 = 'b'.repeat(32);
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 const WIN_CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
@@ -24,11 +25,12 @@ globalThis.fetch = async (url, init = {}) => {
     const auth = new Headers(init.headers).get('authorization');
     if (u === 'https://api.github.com/repos/me/blog') {   // the repo, with what this token's user may do
       if (auth === `Bearer ${BAD}`) return new Response('{"message":"Bad credentials"}', { status: 401 });
+      if (auth === `Bearer ${FINE}`) return Response.json({ full_name: 'me/blog' });
       return Response.json({ full_name: 'me/blog', permissions: { admin: auth === `Bearer ${GOOD}`, push: auth === `Bearer ${GOOD}`, pull: true } });
     }
     // the write check. READER also gets 422 here, as if GitHub looked at the body before the permissions: the
     // push-rights check above still keeps it out
-    return new Response('{}', { status: [`Bearer ${GOOD}`, `Bearer ${READER}`].includes(auth) && init.method === 'PUT' ? 422 : 403 });
+    return new Response('{}', { status: [`Bearer ${GOOD}`, `Bearer ${READER}`, `Bearer ${FINE}`].includes(auth) && init.method === 'PUT' ? 422 : 403 });
   }
   return realFetch(url, init);
 };
@@ -196,13 +198,14 @@ test('admin: needs a GitHub token that can write to the repo; checked once, then
   assert.equal(github, 0);   // not even asked: doesn't look like a GitHub token
   assert.equal((await call('GET', '/admin/stats', { token: BAD })).status, 401);
   assert.equal((await call('GET', '/admin/stats', { token: READER })).status, 401);   // a real token, but its user can't push
+  assert.equal((await call('GET', '/admin/me', { token: FINE })).status, 200);         // no permissions field: the write check decides
   assert.equal((await call('GET', '/admin/me', { token: GOOD })).status, 200);
   const asked = github;
   await call('GET', '/admin/stats', { token: GOOD }); await call('GET', '/admin/visits', { token: GOOD });
   assert.equal(github, asked);
   const stored = rows('SELECT hash FROM admin_tokens');
-  assert.equal(stored.length, 1);
-  assert.ok(!stored[0].hash.includes('AAAA'), 'only a hash of the token is kept');
+  assert.equal(stored.length, 2);   // GOOD and FINE
+  assert.ok(stored.every((r) => /^[0-9a-f]{64}$/.test(r.hash) && !r.hash.includes('AAAA')), 'only a hash of the token is kept');
 });
 
 test('admin analytics: totals, daily series, top lists, visitors with IP + location', async () => {
