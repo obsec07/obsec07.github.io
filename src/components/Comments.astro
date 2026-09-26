@@ -1,8 +1,9 @@
 ---
 // Guest replies under a post (XenForo-style messages) and the post's Like button, from the comments API (api/).
 // No account needed: guests are recognised by their `guest` cookie (set in Base.astro), so they can delete their
-// own replies and un-like. Signed in to /admin, you reply as the author (with your photo and an "Author" badge) and
-// can delete any reply. Everything stays hidden if the API can't be reached.
+// own replies and un-like. Replies can be liked, answered (answers nest one level under the reply) and reported to
+// the owner. Signed in to /admin, you reply as the author (with your photo and an "Author" badge) and can delete any
+// reply. Everything stays hidden if the API can't be reached.
 import { SITE, API_URL, avatarUrl, profileUrl } from '../config';
 interface Props { slug: string; }
 const { slug } = Astro.props;
@@ -16,6 +17,7 @@ const { slug } = Astro.props;
     <div class="reply-user"><span class="reply-av" id="reply-form-av" aria-hidden="true"></span></div>
     <div class="reply-main">
       <div class="reply-as" id="reply-as" hidden></div>
+      <div class="reply-to" id="reply-to" hidden><span>Replying to <b id="reply-to-name"></b></span><button type="button" id="reply-to-x" aria-label="Don't reply to them">×</button></div>
       <label class="reply-name-field" id="reply-name-field">
         <span class="sr">Your name</span>
         <input type="text" name="name" maxlength="40" autocomplete="nickname" placeholder="Your name" required />
@@ -43,9 +45,10 @@ const { slug } = Astro.props;
     const $ = (id: string) => document.getElementById(id)!;
     const list = $('reply-list'), formEl = $('reply-form') as HTMLFormElement, err = $('reply-err');
     const f = formEl.elements as unknown as Record<string, HTMLInputElement & HTMLTextAreaElement>;
-    type Comment = { id: number; name: string; body: string; ts: number; owner: boolean; mine: boolean };
-    // total: all replies (the API sends the newest 500); form: the signed token a reply has to bring back
-    let comments: Comment[] = [], total = 0, likes = 0, liked = false, form = '', formAt = 0;
+    type Comment = { id: number; name: string; body: string; ts: number; owner: boolean; mine: boolean; parent: number | null; likes: number; liked: boolean; reported: boolean };
+    // total: all replies (the API sends the newest 500); form: the signed token a reply has to bring back;
+    // replyTo: the reply being answered (its thread's top reply gets the answer)
+    let comments: Comment[] = [], total = 0, likes = 0, liked = false, form = '', formAt = 0, replyTo: { id: number; name: string } | null = null;
 
     // the guest id from the cookie (Base.astro sets it before this runs; made here too, just in case)
     function guest() {
@@ -110,8 +113,18 @@ const { slug } = Astro.props;
       a.style.setProperty('--h', String(h)); a.setAttribute('aria-hidden', 'true');
       return a;
     }
-    function item(c: Comment, n: number) {
-      const li = el('li', 'reply'); li.id = `comment-${c.id}`;
+    const heart = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>';
+    function likeButton(c: Comment) {
+      const b = el('button', `reply-act reply-like${c.liked ? ' on' : ''}`) as HTMLButtonElement;
+      b.type = 'button'; b.dataset.like = String(c.id); b.setAttribute('aria-pressed', String(c.liked));
+      b.innerHTML = heart;   // a fixed icon; the text below goes in as text
+      b.append(el('span', '', c.liked ? 'Liked' : 'Like'));
+      if (c.likes) b.append(el('span', 'reply-like-n', String(c.likes)));
+      b.title = c.likes ? `${c.likes} like${c.likes === 1 ? '' : 's'}` : 'Like this reply';
+      return b;
+    }
+    function item(c: Comment, n: string) {
+      const li = el('article', `reply${c.parent ? ' reply-child' : ''}`); li.id = `comment-${c.id}`;
       const user = el('div', 'reply-user');
       user.append(avatar(c.name, c.owner));
       const who = el('div', 'reply-who');
@@ -125,18 +138,38 @@ const { slug } = Astro.props;
       top.append(t, num);
       const body = el('div', 'reply-body'); body.append(formatted(c.body));
       const foot = el('div', 'reply-foot');
-      const quote = el('button', 'reply-act', 'Reply') as HTMLButtonElement; quote.type = 'button'; quote.dataset.at = c.owner ? OWNER : c.name;
-      foot.append(quote);
+      const quote = el('button', 'reply-act', 'Reply') as HTMLButtonElement; quote.type = 'button'; quote.dataset.at = c.owner ? OWNER : c.name; quote.dataset.to = String(c.parent || c.id);
+      foot.append(likeButton(c), quote);
+      if (!c.mine && !c.owner && !adminToken()) {
+        const r = el('button', 'reply-act reply-report', c.reported ? 'Reported' : 'Report') as HTMLButtonElement;
+        r.type = 'button'; r.dataset.report = String(c.id); r.disabled = c.reported; foot.append(r);
+      }
       if (c.mine || adminToken()) { const d = el('button', 'reply-act reply-del', 'Delete') as HTMLButtonElement; d.type = 'button'; d.dataset.del = String(c.id); foot.append(d); }
       main.append(top, body, foot);
       li.append(user, main);
       return li;
     }
+    // threads: each top reply with its answers under it (#3, then #3.1, #3.2 …). An answer whose reply isn't among
+    // the newest 500 shows as a top reply.
     function render() {
-      const first = total - comments.length;   // replies older than the newest 500 aren't shown, but still counted
-      list.replaceChildren(...comments.map((c, i) => item(c, first + i + 1)));
+      const ids = new Set(comments.map((c) => c.id)), kids = new Map<number, Comment[]>();
+      const tops = comments.filter((c) => !c.parent || !ids.has(c.parent));
+      for (const c of comments) if (c.parent && ids.has(c.parent)) kids.set(c.parent, [...(kids.get(c.parent) || []), c]);
+      const first = Math.max(0, total - comments.length);   // older replies aren't shown, but still counted
+      list.replaceChildren(...tops.map((c, i) => {
+        const li = el('li', 'reply-thread'), n = first + i + 1;
+        li.append(item(c, String(n)));
+        const answers = kids.get(c.id) || [];
+        if (answers.length) { const ol = el('ol', 'reply-children'); answers.forEach((a, j) => { const w = el('li', 'reply-thread'); w.append(item(a, `${n}.${j + 1}`)); ol.append(w); }); li.append(ol); }
+        return li;
+      }));
       $('replies-n').textContent = total ? `(${total})` : '';
       $('reply-empty').hidden = comments.length > 0;
+    }
+    function setReplyTo(to: { id: number; name: string } | null) {
+      replyTo = to;
+      $('reply-to').hidden = !to;
+      $('reply-to-name').textContent = to ? `@${to.name}` : '';
     }
     function renderLike() {
       if (!likeBtn) return;
@@ -192,7 +225,7 @@ const { slug } = Astro.props;
         const send = async () => {
           const wait = formAt + 3200 - Date.now();
           if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-          return call(`/posts/${encodeURIComponent(SLUG)}/comments`, { guest: G, name: owner ? OWNER : name, body, form, trap: f.leave_empty.value });
+          return call(`/posts/${encodeURIComponent(SLUG)}/comments`, { guest: G, name: owner ? OWNER : name, body, form, trap: f.leave_empty.value, ...(replyTo ? { parent: replyTo.id } : {}) });
         };
         let d;
         try { d = await send(); }
@@ -200,27 +233,57 @@ const { slug } = Astro.props;
         if (!owner) try { localStorage.setItem('guest-name', name); } catch {}
         if (!comments.some((c) => c.id === d.comment.id)) { comments.push(d.comment); total++; }
         render();
-        f.body.value = '';
+        f.body.value = ''; setReplyTo(null);
         const li = document.getElementById(`comment-${d.comment.id}`)!;
         li.classList.add('reply-new'); li.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      } catch (x) { err.textContent = (x as Error).message; }
-      finally { btn.disabled = false; }
+      } catch (x) {
+        err.textContent = (x as Error).message;
+        if (/answered was deleted/.test(err.textContent)) setReplyTo(null);   // sending again posts it as a new reply
+      } finally { btn.disabled = false; }
     });
+    const liking = new Set<number>();   // replies whose like is on its way
     list.addEventListener('click', async (e) => {
       const b = (e.target as HTMLElement).closest('button'); if (!b) return;
-      if (b.dataset.at) {
+      if (b.dataset.at) {   // Reply: answer this reply (in its thread), starting with @name
         const at = `@${b.dataset.at} `;
         if (!f.body.value.startsWith(at)) f.body.value = at + f.body.value;
+        setReplyTo({ id: Number(b.dataset.to), name: b.dataset.at });
         f.body.focus(); f.body.setSelectionRange(f.body.value.length, f.body.value.length);
         formEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
-      if (b.dataset.del) {
-        if (!confirm('Delete this reply?')) return;
+      if (b.dataset.like) {
+        const c = comments.find((x) => String(x.id) === b.dataset.like); if (!c || liking.has(c.id)) return;
+        const want = !c.liked;
+        liking.add(c.id);
+        c.liked = want; c.likes += want ? 1 : -1; b.replaceWith(likeButton(c));   // show it at once; the answer corrects it
+        try { const d = await call(`/posts/${encodeURIComponent(SLUG)}/comments/${c.id}/like`, { guest: G, like: want }); c.likes = d.likes; c.liked = d.liked; }
+        catch (x) { c.liked = !want; c.likes += want ? -1 : 1; alert((x as Error).message); }
+        finally { liking.delete(c.id); }
+        document.querySelector(`#comment-${c.id} .reply-like`)?.replaceWith(likeButton(c));
+      }
+      if (b.dataset.report) {
+        const why = prompt('Report this reply to the site owner. Why? (optional)');
+        if (why === null) return;
         b.disabled = true;
-        try { await call(`/posts/${encodeURIComponent(SLUG)}/comments/${b.dataset.del}/delete`, { guest: G }); comments = comments.filter((c) => String(c.id) !== b.dataset.del); total--; render(); }
-        catch (x) { alert((x as Error).message); b.disabled = false; }
+        try {
+          await call(`/posts/${encodeURIComponent(SLUG)}/comments/${b.dataset.report}/report`, { guest: G, reason: why });
+          const c = comments.find((x) => String(x.id) === b.dataset.report); if (c) c.reported = true;
+          b.textContent = 'Reported';
+        } catch (x) { alert((x as Error).message); b.disabled = false; }
+      }
+      if (b.dataset.del) {
+        const id = Number(b.dataset.del), answers = comments.filter((c) => c.parent === id).length;
+        if (!confirm(answers ? `Delete this reply? Its ${answers} answer${answers === 1 ? '' : 's'} will stay.` : 'Delete this reply?')) return;
+        b.disabled = true;
+        try {
+          await call(`/posts/${encodeURIComponent(SLUG)}/comments/${id}/delete`, { guest: G });
+          comments = comments.filter((c) => c.id !== id); comments.forEach((c) => { if (c.parent === id) c.parent = null; });   // answers move up
+          if (replyTo && replyTo.id === id) setReplyTo(null);
+          total--; render();
+        } catch (x) { alert((x as Error).message); b.disabled = false; }
       }
     });
+    $('reply-to-x').addEventListener('click', () => { setReplyTo(null); f.body.focus(); });
     likeBtn?.addEventListener('click', async () => {
       const want = !liked;
       liked = want; likes += want ? 1 : -1; renderLike();   // show it at once; the answer corrects it

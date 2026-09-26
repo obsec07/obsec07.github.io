@@ -5,7 +5,7 @@ import Base from '../../layouts/Base.astro';
 import PostCard from '../../components/PostCard.astro';
 import { readingMinutes } from '../../lib/posts';
 import { SITE, OWNER_PROFILE, CATEGORY_LABELS, STATIC_SITE, SOCIAL_LINKS, avatarUrl, shortUrl } from '../../config';
-import { ownerStats, fmtDate } from '../../lib/owner';
+import { ownerStats, fmtDate, statAttrs, num } from '../../lib/owner';
 
 export function getStaticPaths() {
   return STATIC_SITE ? [{ params: { name: SITE.handle.toLowerCase() } }] : [];
@@ -31,9 +31,9 @@ const tabs = [['profile-posts', 'Profile posts'], ['activity', 'Latest activity'
     </div>
     <div class="profile-body">
       <div class="profile-stats">
-        <div><span>Messages</span><b>{s.messages}</b></div>
-        <div><span>Reaction score</span><b>{s.reactions}</b></div>
-        <div><span>Points</span><b>{s.points}</b></div>
+        <div><span>Messages</span><b {...statAttrs(s, 'messages')}>{num(s.messages)}</b></div>
+        <div><span>Reaction score</span><b {...statAttrs(s, 'reactions')}>{num(s.reactions)}</b></div>
+        <div><span>Points</span><b>{num(s.points)}</b></div>
       </div>
       <div class="nav-item profile-find">
         <button class="find-btn" type="button" aria-haspopup="true">Find <span class="caret">▾</span></button>

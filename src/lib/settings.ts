@@ -20,7 +20,13 @@ export interface Settings {
   avatarVersion: string;
   socials: Record<SocialKey, string>;
   blogs: Record<Category, { title: string; description: string }>;
+  // the Messages / Reaction score / Points numbers on your profile: '' counts them automatically, digits replace them
+  stats: Record<StatKey, string>;
 }
+
+export const STAT_KEYS = ['messages', 'reactions', 'points'] as const;
+export type StatKey = (typeof STAT_KEYS)[number];
+const STAT_RE = /^\d{0,9}$/;
 
 export const LIMITS = { siteTitle: 80, siteDescription: 200, banner: 200, role: 40, about: 600, blogTitle: 40, blogDescription: 160 } as const;
 export const HANDLE_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{1,31}$/;
@@ -46,10 +52,12 @@ export const DEFAULTS: Settings = {
     infosec: { title: 'InfoSec Blog', description: 'InfoSec related Blog.' },
     tools: { title: 'Tools', description: 'InfoSec related tools.' },
   },
+  stats: { messages: '', reactions: '', points: '' },
 };
 
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
 const oneLine = (v: unknown) => str(v).replace(/\s+/g, ' ');
+const statStr = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 ? String(v) : str(v));
 
 /** Problems with a settings object, keyed by field ("handle", "socials.github", "blogs.ctf.title", …). */
 export function validate(s: any): Record<string, string> {
@@ -71,6 +79,7 @@ export function validate(s: any): Record<string, string> {
     const v = str(s?.socials?.[n.key]);
     if (v && !URL_RE.test(v)) e[`socials.${n.key}`] = 'A full link starting with https://';
   }
+  for (const k of STAT_KEYS) if (!STAT_RE.test(statStr(s?.stats?.[k]))) e[`stats.${k}`] = 'A whole number, or empty to count automatically.';
   for (const c of CATEGORIES) {
     len(`blogs.${c}.title`, s?.blogs?.[c]?.title, LIMITS.blogTitle, true);
     len(`blogs.${c}.description`, s?.blogs?.[c]?.description, LIMITS.blogDescription);
@@ -94,7 +103,9 @@ export function clean(raw: any): Settings {
     avatarVersion: str(raw?.avatarVersion).replace(/[^\w.-]/g, '').slice(0, 40),
     socials: { ...DEFAULTS.socials },
     blogs: structuredClone(DEFAULTS.blogs),
+    stats: { ...DEFAULTS.stats },
   };
+  for (const k of STAT_KEYS) out.stats[k] = pick(`stats.${k}`, statStr(raw?.stats?.[k]).replace(/^0+(?=\d)/, ''), '');
   for (const n of SOCIAL_NETWORKS) out.socials[n.key] = pick(`socials.${n.key}`, str(raw?.socials?.[n.key]), '');
   for (const c of CATEGORIES) {
     out.blogs[c] = {

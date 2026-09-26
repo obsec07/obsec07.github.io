@@ -1,9 +1,9 @@
 import { getCollection } from 'astro:content';
 import { CATEGORY_LABELS } from '../config';
-import { readingMinutes } from '../lib/posts';
+import { readingMinutes, isLive } from '../lib/posts';
 
 export async function GET() {
-  const posts = (await getCollection('posts', ({ data }) => !data.draft))
+  const posts = (await getCollection('posts', isLive))
     .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
   const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   const items = posts.map((p) => ({
@@ -15,6 +15,7 @@ export async function GET() {
     date: p.data.date.toISOString().slice(0, 10),
     description: p.data.description,
     tags: p.data.tags,
+    pinned: p.data.pinned || undefined,
   }));
   return new Response(JSON.stringify(items), { headers: { 'content-type': 'application/json' } });
 }

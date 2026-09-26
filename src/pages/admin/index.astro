@@ -18,6 +18,7 @@ import SetupGuide from '../../components/SetupGuide.astro';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
 // pages not in the sitemap that still show posts; refreshed in the browser after a change goes live
+const STAT_FIELDS = [['messages', 'Messages'], ['reactions', 'Reaction score'], ['points', 'Points']] as const;
 const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${base}/rss.xml`];
 ---
 <Base title="Admin" noindex>
@@ -68,7 +69,10 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
           <div class="frow"><div class="lab">Date</div><div class="fld"><input type="date" name="date" required /></div></div>
           <div class="frow"><div class="lab">Description</div><div class="fld"><input type="text" name="description" maxlength="300" /><div class="hint">One-liner shown on the post lists.</div></div></div>
           <div class="frow"><div class="lab">Tags</div><div class="fld"><input type="text" name="tags" placeholder="htb, web, jwt" /></div></div>
-          <div class="frow"><div class="lab">Status</div><div class="fld"><select name="status"><option value="published">Published</option><option value="draft">Draft (hidden)</option></select></div></div>
+          <div class="frow"><div class="lab">Status</div><div class="fld"><select name="status"><option value="published">Published</option><option value="draft">Draft (hidden)</option><option value="scheduled">Scheduled (publishes by itself)</option></select></div></div>
+          <div class="frow" id="adm-when-row" hidden><div class="lab">Publish at</div><div class="fld"><input type="datetime-local" name="publishAt" />
+            <div class="hint">Your time. The site checks every hour, so the post goes live within the hour after this.</div></div></div>
+          <div class="frow"><div class="lab">Sticky</div><div class="fld"><label class="adm-remember"><input type="checkbox" name="pinned" /> Pin to the top of its blog</label></div></div>
           <div class="frow"><div class="lab">Body</div><div class="fld">
             <div class="acct-note adm-draft-note" id="adm-draft-note" hidden>
               <span id="adm-draft-when"></span>
@@ -79,7 +83,11 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
               <span class="hint" id="adm-img-hint">JPG, PNG, WebP or GIF. Big pictures are shrunk to 1600px wide. They upload when you press Save.</span>
             </div>
             <ul class="adm-imgs" id="adm-imgs" hidden></ul>
-            <textarea name="body" rows="20" class="adm-body" placeholder="Markdown…"></textarea>
+            <div class="adm-views" role="group" aria-label="Editor view"><button type="button" data-view="write" aria-pressed="true">Write</button><button type="button" data-view="preview" aria-pressed="false">Preview</button></div>
+            <div class="adm-write" id="adm-write">
+              <textarea name="body" rows="20" class="adm-body" placeholder="Markdown…"></textarea>
+              <div class="adm-preview prose" id="adm-preview" aria-live="polite" hidden></div>
+            </div>
             <div class="hint">Your text is kept on this device as you type, until you save.</div>
           </div></div>
           <div class="acct-actions"><span class="adm-err" id="adm-save-err" role="alert"></span><button class="save-btn" type="button" id="adm-cancel">Cancel</button> <button class="save-btn" type="submit" id="adm-save">Save</button></div>
@@ -99,6 +107,10 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
           <div class="frow"><div class="lab">Title</div><div class="fld"><input type="text" name="role" maxlength={LIMITS.role} required /><div class="hint">Shown under your name, e.g. Administrator.</div></div></div>
           <div class="frow"><div class="lab">About you</div><div class="fld"><textarea name="about" rows="4" maxlength={LIMITS.about}></textarea><div class="hint">The About tab of your profile.</div></div></div>
           <div class="frow"><div class="lab">Member since</div><div class="fld"><input type="date" name="joined" required /></div></div>
+          <div class="frow"><div class="lab">Profile numbers</div><div class="fld adm-links adm-nums">
+            {STAT_FIELDS.map(([k, label]) => <label class="adm-link"><span>{label}</span><input type="text" name={`stats.${k}`} inputmode="numeric" maxlength="9" placeholder="Automatic" autocomplete="off" /></label>)}
+            <div class="hint">On your hover card, author card and profile. Empty counts automatically (Messages: your posts and replies; Reaction score: likes on your posts and replies; Points: your trophies); a number shows that number instead.</div>
+          </div></div>
           <div class="frow"><div class="lab">Email</div><div class="fld"><input type="email" name="email" autocomplete="off" /><div class="hint">Contact address in the footer, on Who Am I and on your profile. Leave empty to hide it.</div></div></div>
           <div class="frow"><div class="lab">Links</div><div class="fld adm-links">
             {SOCIAL_NETWORKS.map((n) => <label class="adm-link"><span>{n.label}</span><input type="url" name={`socials.${n.key}`} placeholder="https://" autocomplete="off" spellcheck="false" /></label>)}
@@ -170,7 +182,8 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
               </div>
             </div>
             <div class="adm-pane st" id="cm-pane" data-pane="comments" hidden>
-              <div class="st-filters"><h3 class="st-h" id="cm-count">Replies</h3><button type="button" class="st-btn" id="cm-refresh">Refresh</button></div>
+              <div class="st-filters"><h3 class="st-h" id="cm-count">Replies</h3>
+                <span class="st-tools"><span class="st-range" id="cm-show" role="group" aria-label="Show"><button type="button" data-show="all" aria-pressed="true">All</button><button type="button" data-show="reported" aria-pressed="false">Reported <span id="cm-reported-n"></span></button></span><button type="button" class="st-btn" id="cm-refresh">Refresh</button></span></div>
               <div class="acct-note err" id="cm-err" role="alert" hidden></div>
               <div class="st-card"><div id="cm-list"></div><button type="button" class="st-btn st-more" id="cm-more" hidden>Show more</button></div>
               <div class="st-card"><h3>Blocked IP addresses</h3><div id="cm-blocks"></div></div>
@@ -191,6 +204,8 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
   import yaml from 'js-yaml';
   import { validate, clean } from '../../lib/settings';
   import { initStats } from '../../scripts/admin-stats';
+  import { marked } from 'marked';
+  import DOMPurify from 'dompurify';
 
   const root = document.getElementById('adm');
   if (root) {
@@ -288,7 +303,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       $('adm-count').textContent = `Posts (${posts.length})`;
       $('adm-list').innerHTML = posts.length ? posts.map((p, i) => `
         <div class="adm-row" data-slug="${esc(p.slug)}">
-          <div class="adm-main"><div class="tl-title">${esc(p.data.title || p.slug)} ${p.data.draft ? '<span class="adm-draft">draft</span>' : ''}</div>
+          <div class="adm-main"><div class="tl-title">${esc(p.data.title || p.slug)} ${p.data.draft ? '<span class="adm-draft">draft</span>' : ''}${isScheduled(p) ? `<span class="adm-draft">scheduled · ${esc(new Date(p.data.publishAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }))}</span>` : ''}${p.data.pinned ? '<span class="adm-draft">pinned</span>' : ''}</div>
             <div class="tl-sub">${esc(p.data.category)} · ${esc(isoDate(p.data.date))} · /posts/${esc(p.slug)}<span class="adm-stats"></span></div></div>
           <div class="adm-acts"><button class="save-btn" type="button" data-edit="${i}">Edit</button><button class="save-btn adm-del" type="button" data-del="${i}">Delete</button></div>
         </div>`).join('') : '<div class="tl-empty">No posts yet. Click “+ New post”.</div>';
@@ -297,7 +312,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
     // views, replies and likes next to each post (from the comments API, when it's on)
     async function postStats() {
       if (!root.dataset.api || !posts.length) return;
-      const slugs = posts.filter((p) => !p.data.draft).map((p) => p.slug), counts = {};
+      const slugs = posts.filter((p) => !p.data.draft && !isScheduled(p)).map((p) => p.slug), counts = {};
       try {
         for (let i = 0; i < slugs.length; i += 50) Object.assign(counts, await (await fetch(`${root.dataset.api}/counts?posts=${slugs.slice(i, i + 50).map(encodeURIComponent).join(',')}`, { cache: 'no-store' })).json());
       } catch { return; }
@@ -360,10 +375,39 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       }
     }
 
+    // ---- scheduling ----
+    const pad = (n) => String(n).padStart(2, '0');
+    const localDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const localDT = (d) => `${localDate(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    const tomorrowAt9 = () => { const d = new Date(Date.now() + 864e5); d.setHours(9, 0, 0, 0); return d; };
+    const isScheduled = (p) => !p.data.draft && p.data.publishAt && new Date(p.data.publishAt) > new Date();
+    const showWhen = () => { $('adm-when-row').hidden = $('adm-editor').elements.status.value !== 'scheduled'; };
+
+    // ---- live preview: the post as it will look (the site's own styles), side by side on wide screens ----
+    // Sanitized (DOMPurify): this page holds your GitHub token, and pasted HTML shouldn't be able to run here.
+    DOMPurify.addHook('afterSanitizeAttributes', (n) => { if (n.tagName === 'A') { n.setAttribute('target', '_blank'); n.setAttribute('rel', 'noopener noreferrer'); } });
+    const wide = matchMedia('(min-width: 1100px)');
+    function renderPreview() {
+      const f = $('adm-editor'), box = $('adm-preview');
+      box.innerHTML = DOMPurify.sanitize(marked.parse(f.elements.body.value || '*Nothing written yet.*', { gfm: true, async: false }));
+      const h = document.createElement('h1'); h.className = 'adm-preview-title'; h.textContent = f.elements.title.value.trim() || 'Untitled'; box.prepend(h);
+      // pictures not uploaded yet: shown from this device
+      box.querySelectorAll('img').forEach((img) => { for (const [p, im] of pending) if (img.getAttribute('src') === sitePath(p)) img.src = im.url; });
+    }
+    let previewTimer = 0;
+    function setView(view) {
+      const preview = view === 'preview', split = preview && wide.matches;
+      document.querySelectorAll('.adm-views [data-view]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
+      $('adm-write').classList.toggle('adm-split', split);
+      $('adm-editor').elements.body.hidden = preview && !split;
+      $('adm-preview').hidden = !preview;
+      if (preview) renderPreview();
+    }
+
     // ---- drafts: what you type is kept on this device until it's saved ----
     const draftKey = (slug) => `adm-draft:${slug || 'new'}`;
-    const FIELDS = ['title', 'slug', 'category', 'date', 'description', 'tags', 'status', 'body'];
-    const fieldValues = () => Object.fromEntries(FIELDS.map((k) => [k, $('adm-editor').elements[k].value]));
+    const FIELDS = ['title', 'slug', 'category', 'date', 'description', 'tags', 'status', 'publishAt', 'pinned', 'body'];
+    const fieldValues = () => Object.fromEntries(FIELDS.map((k) => { const el = $('adm-editor').elements[k]; return [k, el.type === 'checkbox' ? String(el.checked) : el.value]; }));
     let opened = null, draftTimer = 0;
     function keepDraft() {
       if ($('adm-editor').hidden) return;
@@ -394,8 +438,12 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       f.elements.date.value = p ? isoDate(p.data.date) : today();
       f.elements.description.value = p ? p.data.description || '' : '';
       f.elements.tags.value = p ? (p.data.tags || []).join(', ') : '';
-      f.elements.status.value = p && p.data.draft ? 'draft' : 'published';
+      const at = p && p.data.publishAt ? new Date(p.data.publishAt) : null;
+      f.elements.status.value = p && p.data.draft ? 'draft' : at && at > new Date() ? 'scheduled' : 'published';
+      f.elements.publishAt.value = localDT(at && !isNaN(at) ? at : tomorrowAt9());
+      f.elements.pinned.checked = !!(p && p.data.pinned);
       f.elements.body.value = p ? p.body : '';
+      showWhen(); setView('write');
       opened = fieldValues(); forgetPending(); $('adm-img-hint').classList.remove('adm-ferr');
       $('adm-list-box').hidden = true; f.hidden = false; f.elements.title.focus({ preventScroll: true });
       offerDraft();
@@ -408,8 +456,21 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       const f = $('adm-editor'), v = (n) => f.elements[n].value;
       const title = v('title').trim();
       if (!title) return note('A title is required.', 'err');
+      const status = v('status');
       const data = { title, date: v('date') || today(), category: v('category'), description: v('description').trim(),
-        tags: v('tags').split(',').map((t) => t.trim()).filter(Boolean), draft: v('status') === 'draft' };
+        tags: v('tags').split(',').map((t) => t.trim()).filter(Boolean), draft: status === 'draft' };
+      if (status === 'scheduled') {   // hidden until then; the date shown on the post is the day it goes out
+        const at = new Date(v('publishAt'));
+        if (isNaN(at)) { $('adm-save-err').textContent = 'Pick when to publish it.'; f.elements.publishAt.focus(); return; }
+        if (at <= new Date()) { $('adm-save-err').textContent = 'That time has passed. Pick a later one, or set Status to Published.'; f.elements.publishAt.focus(); return; }
+        data.publishAt = at.toISOString(); data.date = localDate(at);
+      }
+      if (f.elements.pinned.checked) data.pinned = true;
+      // "Last edited": a post that's already out, whose text changed; an older one is kept
+      const wasLive = editing && !editing.data.draft && !(editing.data.publishAt && new Date(editing.data.publishAt) > new Date());
+      const changed = editing && (title !== (editing.data.title || '') || data.description !== (editing.data.description || '') || v('body') !== editing.body);
+      if (wasLive && changed && status === 'published') data.updated = today();
+      else if (editing && editing.data.updated) data.updated = isoDate(editing.data.updated);
       let slug = editing ? editing.slug : slugify(v('slug') || title);
       if (!editing) { const taken = new Set(posts.map((p) => p.slug)); let s = slug, n = 2; while (taken.has(s)) s = `${slug}-${n++}`; slug = s; }
       const btn = $('adm-save'), err = $('adm-save-err');
@@ -425,8 +486,9 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
         }
         gone.delete(`${DIR}/${slug}.md`);
         dropDraft(editing ? editing.slug : ''); dropDraft(slug);
-        note(`Saved “${title}”${pics.length ? ` with ${pics.length} picture${pics.length === 1 ? '' : 's'}` : ''}.`);
-        followDeploy(sha, `“${title}”`, { slug, published: !data.draft, pages: pics.map(([p]) => sitePath(p)) });
+        const when = data.publishAt ? new Date(data.publishAt).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+        note(`${data.publishAt ? 'Scheduled' : 'Saved'} “${title}”${pics.length ? ` with ${pics.length} picture${pics.length === 1 ? '' : 's'}` : ''}${when ? ` for ${when}. It goes live by itself within the hour after that` : ''}.`);
+        followDeploy(sha, `“${title}”`, { slug, published: status === 'published', later: when, pages: pics.map(([p]) => sitePath(p)) });
         closeEditor(); await loadPosts();
       } catch (x) { if (!x.shown) { err.textContent = x.message; note(x.message, 'err'); } }
       finally { btn.disabled = false; btn.textContent = 'Save'; }
@@ -466,13 +528,14 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       const list = [...paths];
       await Promise.all(Array.from({ length: 6 }, async () => { while (list.length) { try { await fetch(list.shift(), { cache: 'reload' }); } catch {} } }));
     }
-    async function followDeploy(sha, what, { slug = '', published = false, pages = [] } = {}) {
+    // later: a scheduled post's time (the deploy saves it; it goes live by itself then)
+    async function followDeploy(sha, what, { slug = '', published = false, pages = [], later = '' } = {}) {
       const id = ++watching, box = $('adm-deploy'), current = () => id === watching;
       const show = (html, kind = 'ok') => { if (!current()) return; box.innerHTML = html; box.className = `acct-note ${kind}`; box.hidden = false; };
       const oldCopy = 'If a page still shows the old version, press Ctrl+F5 (Cmd+Shift+R on a Mac).';
       const What = esc(what.charAt(0).toUpperCase() + what.slice(1));   // at the start of a sentence
       if (!sha) { show(`${What} goes live on the site in about a minute. ${oldCopy}`); return; }
-      show(`<span class="adm-spin" aria-hidden="true"></span>Publishing ${esc(what)} to the site… (usually under a minute)`);
+      show(`<span class="adm-spin" aria-hidden="true"></span>${later ? 'Saving' : 'Publishing'} ${esc(what)} to the site… (usually under a minute)`);
       let run = null, errors = 0;
       const t0 = Date.now();
       for (;;) {
@@ -492,6 +555,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       if (run.conclusion === 'cancelled') return show(`That deploy was replaced by a newer one; ${esc(what)} goes live with it.`);
       if (run.conclusion !== 'success') return show(`The site build failed, so ${esc(what)} isn't live yet.${log}`, 'err');
       await sleep(1500); await refreshSite(slug, pages);
+      if (later) return show(`✓ Saved. ${What} goes live by itself on ${esc(later)} (within the hour after).`);
       const view = published ? ` <a href="${esc(sitePage(`/posts/${slug}/`))}">View post</a>` : '';
       show(`✓ ${What} is live.${view} This browser shows the new version now; other visitors within 10 minutes.`);
     }
@@ -673,11 +737,22 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       } catch (x) { $('adm-photo-hint').textContent = x.message; }
     });
     $('adm-cancel').addEventListener('click', closeEditor);
-    $('adm-editor').addEventListener('input', () => { clearTimeout(draftTimer); draftTimer = setTimeout(keepDraft, 500); });
+    $('adm-editor').addEventListener('input', () => {
+      clearTimeout(draftTimer); draftTimer = setTimeout(keepDraft, 500);
+      if (!$('adm-preview').hidden) { clearTimeout(previewTimer); previewTimer = setTimeout(renderPreview, 250); }   // live, side by side
+    });
+    $('adm-editor').elements.status.addEventListener('change', () => {
+      const f = $('adm-editor');
+      if (f.elements.status.value === 'published' && f.elements.date.value > today()) f.elements.date.value = today();   // out now, not on the planned day
+      showWhen();
+    });
+    document.querySelector('.adm-views').addEventListener('click', (e) => { const b = e.target.closest('[data-view]'); if (b) setView(b.dataset.view); });
+    wide.addEventListener('change', () => { if (!$('adm-preview').hidden) setView('preview'); });
     $('adm-editor').addEventListener('change', keepDraft);
     $('adm-draft-restore').addEventListener('click', () => {
       const d = JSON.parse($('adm-draft-note').dataset.draft || '{}'), f = $('adm-editor');
-      FIELDS.forEach((k) => { if (typeof d[k] === 'string' && !(k === 'slug' && editing)) f.elements[k].value = d[k]; });
+      FIELDS.forEach((k) => { if (typeof d[k] !== 'string' || (k === 'slug' && editing)) return; const el = f.elements[k]; if (el.type === 'checkbox') el.checked = d[k] === 'true'; else el.value = d[k]; });
+      showWhen(); if (!$('adm-preview').hidden) renderPreview();
       $('adm-draft-note').hidden = true;
     });
     $('adm-draft-discard').addEventListener('click', () => { dropDraft(editing && editing.slug); $('adm-draft-note').hidden = true; });

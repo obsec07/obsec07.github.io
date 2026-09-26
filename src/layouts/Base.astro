@@ -2,13 +2,21 @@
 import '../styles/global.css';
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
-import { SITE, STATIC_SITE, API_URL } from '../config';
+import { SITE, STATIC_SITE, API_URL, avatarUrl, profileUrl } from '../config';
 import ProfileCard from '../components/ProfileCard.astro';
 // shownPosts: ids of the posts this page already lists; the footer's "Latest posts" skips them (no post twice on a page)
-interface Props { title?: string; description?: string; noindex?: boolean; shownPosts?: string[]; }
-const { title, description, noindex = false, shownPosts = [] } = Astro.props;
+// image: the link-preview picture (a post's first picture; default: your photo); article: a post's dates, blog, tags
+interface Props {
+  title?: string; description?: string; noindex?: boolean; shownPosts?: string[]; image?: string;
+  article?: { published: Date; modified?: Date; section?: string; tags?: string[]; author?: string };
+}
+const { title, description, noindex = false, shownPosts = [], image, article } = Astro.props;
 const pageTitle = title ? `${title} · ${SITE.handle}` : SITE.title;
 const desc = description || SITE.description;
+// link previews (Discord, WhatsApp, X, LinkedIn…) and search engines: full URLs on the public address
+const canonical = new URL(Astro.url.pathname.replace(/\/index\.html$/, '/').replace(/\/?$/, '/'), Astro.site).href;
+const ownerPhoto = new URL(avatarUrl(SITE.handle), Astro.site).href;
+const previewImage = image ? new URL(image, Astro.site).href : ownerPhoto;
 const favicon = "data:image/svg+xml," + encodeURIComponent(
   "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M10 1.5 C13 2.5 14 6 14 8.5 C14 12 11.5 15 8 15.5 C4.5 15 2 11.5 2 8.5 C2 5.5 4 2.5 7 2 C8 1.7 9 1.3 10 1.5 Z' fill='#6b7078' stroke='#22262b' stroke-width='.8'/><circle cx='6' cy='7' r='1.4' fill='#17191d'/><path d='M11 7.5 C12.4 7.5 13 9 12 10.2 C11 11 9.6 10.4 9.6 9 C9.6 8 10 7.5 11 7.5 Z' fill='#faf6f1'/></svg>"
 );
@@ -37,10 +45,33 @@ const privacyHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/privacy').r
     </script>
     <title>{pageTitle}</title>
     <meta name="description" content={desc} />
-    {noindex && <meta name="robots" content="noindex" />}
-    <meta property="og:title" content={pageTitle} />
+    {noindex ? <meta name="robots" content="noindex" /> : <link rel="canonical" href={canonical} />}
+    <meta property="og:site_name" content={SITE.title} />
+    <meta property="og:title" content={title || SITE.title} />
     <meta property="og:description" content={desc} />
-    <meta property="og:type" content="website" />
+    <meta property="og:type" content={article ? 'article' : 'website'} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={previewImage} />
+    <meta property="og:image:alt" content={image ? title || SITE.title : SITE.handle} />
+    <meta name="twitter:card" content={image ? 'summary_large_image' : 'summary'} />
+    {article && (
+      <Fragment>
+        <meta property="article:published_time" content={article.published.toISOString()} />
+        {article.modified && <meta property="article:modified_time" content={article.modified.toISOString()} />}
+        {article.section && <meta property="article:section" content={article.section} />}
+        {(article.tags ?? []).map((t) => <meta property="article:tag" content={t} />)}
+        <meta name="author" content={article.author || SITE.handle} />
+        <script type="application/ld+json" is:inline set:html={JSON.stringify({
+          '@context': 'https://schema.org', '@type': 'BlogPosting',
+          headline: title, description: desc, url: canonical, mainEntityOfPage: canonical, image: previewImage,
+          datePublished: article.published.toISOString(), dateModified: (article.modified || article.published).toISOString(),
+          ...(article.section ? { articleSection: article.section } : {}),
+          ...(article.tags?.length ? { keywords: article.tags.join(', ') } : {}),
+          author: { '@type': 'Person', name: article.author || SITE.handle, url: new URL(profileUrl(SITE.handle), Astro.site).href },
+          publisher: { '@type': 'Person', name: SITE.handle, image: ownerPhoto },
+        }).replace(/</g, '\\u003c')} />
+      </Fragment>
+    )}
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Roboto+Slab:wght@400;500;700&display=swap" rel="stylesheet" />
@@ -79,6 +110,34 @@ const privacyHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/privacy').r
           var data = JSON.stringify({ path: location.pathname, ref: document.referrer, title: document.title, guest: id, lang: navigator.language, screen: screen.width + 'x' + screen.height });
           try { if (navigator.sendBeacon && navigator.sendBeacon(api + '/hit', data)) return; } catch (e) {}
           fetch(api + '/hit', { method: 'POST', body: data, keepalive: true, headers: { 'Content-Type': 'text/plain' } }).catch(function () {});
+        })();
+        // live numbers: Online statistics (footer), Messages (home page), your Messages and Reaction score (profile)
+        (function () {
+          var api = document.body.getAttribute('data-api'); if (!api) return;
+          var me = null;
+          try { me = JSON.parse(sessionStorage.getItem('adm') || localStorage.getItem('adm') || 'null'); } catch (e) {}
+          var tok = me && typeof me.token === 'string' ? me.token : '';
+          // signed in to /admin and reading the site: Members online counts you (tells the API every 2 minutes at most)
+          if (tok) {
+            try {
+              if (Date.now() - (Number(sessionStorage.getItem('adm-seen')) || 0) > 120000) {
+                sessionStorage.setItem('adm-seen', String(Date.now()));
+                fetch(api + '/admin/seen', { method: 'POST', headers: { Authorization: 'Bearer ' + tok } }).catch(function () {});
+              }
+            } catch (e) {}
+          }
+          function put(sel, f) { document.querySelectorAll(sel).forEach(function (el) { var v = f(el); if (isFinite(v)) el.textContent = Number(v).toLocaleString('en-US'); }); }
+          var base = function (el) { return Number(el.getAttribute('data-base')) || 0; };
+          fetch(api + '/site-stats').then(function (r) { return r.ok ? r.json() : null; }).then(function (s) {
+            if (!s) return;
+            var members = s.owner || tok ? 1 : 0;
+            put('[data-online=members]', function () { return members; });
+            put('[data-online=guests]', function () { return s.online; });
+            put('[data-online=total]', function () { return members + s.online; });
+            put('[data-fstat=messages]', function (el) { return base(el) + s.replies; });
+            put('[data-ostat=messages]', function (el) { return base(el) + s.ownerReplies; });
+            put('[data-ostat=reactions]', function (el) { return base(el) + s.likes; });
+          }).catch(function () {});
         })();
       </script>
     )}

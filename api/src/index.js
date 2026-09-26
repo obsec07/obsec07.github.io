@@ -4,19 +4,25 @@
 // Public — called by the site's pages. Nothing here ever returns an IP address or someone else's guest id.
 //   GET  /health                              { ok, version }
 //   POST /hit                                 a page view: { path, ref, title, guest, lang, screen }
-//   GET  /posts/:slug?g=<guest>               { comments (newest 500), total, likes, liked, views, form }
+//   GET  /posts/:slug?g=<guest>               { comments (newest 500, each with parent, likes, liked, reported), total,
+//                                               likes, liked, views, form }
 //   POST /posts/:slug/comments                { guest, name, body, form, trap }; the owner adds Authorization. `form` is the
 //                                             signed token from the GET (at least 3s old: bots have to load and wait),
 //                                             `trap` a hidden field only bots fill in
-//   POST /posts/:slug/comments/:id/delete     { guest }: your own comment (the owner: any)
+//   POST /posts/:slug/comments                (also) { parent }: an answer to a reply (answers nest one level deep)
+//   POST /posts/:slug/comments/:id/delete     { guest }: your own comment (the owner: any); its answers stay, moved up
+//   POST /posts/:slug/comments/:id/like       { guest, like }: like a reply
+//   POST /posts/:slug/comments/:id/report     { guest, reason }: flag a reply for the owner
 //   POST /posts/:slug/like                    { guest, like }
 //   GET  /counts?posts=a,b                    { a: { comments, likes, views }, … }
+//   GET  /site-stats                          { online, owner, replies, ownerReplies, likes }: live numbers for the forum boxes
 // Admin — Authorization: Bearer <the GitHub token /admin signs in with>. The token is checked with GitHub (its user
 // has push rights on the repo, and the token itself can write there) and only its SHA-256 is kept, to skip that check
 // for the next 30 minutes.
 //   GET  /admin/me, /admin/stats, /admin/live, /admin/posts, /admin/visits, /admin/visits.csv, /admin/visitors,
-//        /admin/comments, /admin/blocks
-//   POST /admin/comments/:id/delete, /admin/blocks, /admin/blocks/delete
+//        /admin/comments (?reported=1), /admin/blocks
+//   POST /admin/comments/:id/delete, /admin/comments/:id/dismiss (its reports), /admin/blocks, /admin/blocks/delete,
+//        /admin/seen (you're reading the site: Members online counts you)
 //
 // Guests are told apart by the random id in their `guest` cookie (set by the site). IP addresses and locations come
 // from Cloudflare (CF-Connecting-IP, request.cf). Visits older than RETENTION_DAYS (default 90) are deleted daily, and
@@ -33,10 +39,15 @@ const SCHEMA = [
   'CREATE INDEX IF NOT EXISTS visits_guest ON visits (guest, ts)',
   `CREATE TABLE IF NOT EXISTS comments (
     id INTEGER PRIMARY KEY AUTOINCREMENT, post TEXT NOT NULL, name TEXT NOT NULL, body TEXT NOT NULL, ts INTEGER NOT NULL,
-    owner INTEGER NOT NULL DEFAULT 0, guest TEXT, ip TEXT, country TEXT, region TEXT, city TEXT)`,
+    owner INTEGER NOT NULL DEFAULT 0, guest TEXT, ip TEXT, country TEXT, region TEXT, city TEXT, parent INTEGER)`,
   'CREATE INDEX IF NOT EXISTS comments_post ON comments (post, ts)',
   'CREATE INDEX IF NOT EXISTS comments_ip_ts ON comments (ip, ts)',
   'CREATE INDEX IF NOT EXISTS comments_guest ON comments (guest, ts)',
+  'CREATE INDEX IF NOT EXISTS comments_parent ON comments (parent)',
+  // likes on replies, and replies flagged by readers
+  `CREATE TABLE IF NOT EXISTS comment_likes (comment INTEGER NOT NULL, guest TEXT NOT NULL, ts INTEGER NOT NULL, ip TEXT, PRIMARY KEY (comment, guest))`,
+  'CREATE INDEX IF NOT EXISTS comment_likes_ip_ts ON comment_likes (ip, ts)',
+  `CREATE TABLE IF NOT EXISTS reports (comment INTEGER NOT NULL, guest TEXT NOT NULL, ts INTEGER NOT NULL, ip TEXT, reason TEXT, PRIMARY KEY (comment, guest))`,
   `CREATE TABLE IF NOT EXISTS likes (post TEXT NOT NULL, guest TEXT NOT NULL, ts INTEGER NOT NULL, ip TEXT, PRIMARY KEY (post, guest))`,
   'CREATE INDEX IF NOT EXISTS likes_ip_ts ON likes (ip, ts)',
   'CREATE INDEX IF NOT EXISTS likes_guest ON likes (guest)',
@@ -47,7 +58,7 @@ const SCHEMA = [
   // all-time views per post (visits are deleted after 90 days; these counts stay). One per visitor per 30 minutes.
   `CREATE TABLE IF NOT EXISTS post_views (post TEXT PRIMARY KEY, views INTEGER NOT NULL DEFAULT 0)`,
 ];
-const SCHEMA_VERSION = '2';
+const SCHEMA_VERSION = '3';
 // a visit's post, from its path ('/posts/<slug>/', also under a base path)
 const SLUG_SQL = "rtrim(substr(path, instr(path, '/posts/') + 7), '/')";
 
@@ -70,6 +81,8 @@ async function readMeta(env) {
 async function init(env) {
   let meta = await readMeta(env);
   if (meta.schema !== SCHEMA_VERSION || !meta.form_key) {
+    // schema 3: answers to replies. A new database gets the column from CREATE TABLE (this then fails, harmlessly).
+    try { await env.DB.prepare('ALTER TABLE comments ADD COLUMN parent INTEGER').run(); } catch {}
     await env.DB.batch([...SCHEMA.map((s) => env.DB.prepare(s)),
       // views counted before post_views existed (schema 1): taken from the visits still kept
       env.DB.prepare(`INSERT OR IGNORE INTO post_views (post, views) SELECT ${SLUG_SQL} p, COUNT(*) FROM visits
@@ -256,14 +269,19 @@ async function hit(req, env) {
 }
 
 // ---- comments + likes ----
-const shape = (row, guest) => ({ id: row.id, name: row.name, body: row.body, ts: row.ts, owner: !!row.owner, mine: !!guest && row.guest === guest });
+const shape = (row, guest) => ({ id: row.id, name: row.name, body: row.body, ts: row.ts, owner: !!row.owner, mine: !!guest && row.guest === guest,
+  parent: row.parent ?? null, likes: row.likes ?? 0, liked: !!row.liked, reported: !!row.reported });
 function cleanText(s) {
   return (typeof s === 'string' ? s : '').replace(/\r\n?/g, '\n').replace(/[^\S\n]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
 }
 async function listComments(req, env, slug) {
   const guest = new URL(req.url).searchParams.get('g') || '';
   const [comments, total, likes, liked, views] = await env.DB.batch([
-    env.DB.prepare('SELECT id, name, body, ts, owner, guest FROM comments WHERE post = ? ORDER BY ts DESC, id DESC LIMIT ?').bind(slug, LIMITS.perPost),
+    env.DB.prepare(`SELECT c.id, c.name, c.body, c.ts, c.owner, c.guest, c.parent,
+        (SELECT COUNT(*) FROM comment_likes l WHERE l.comment = c.id) likes,
+        EXISTS (SELECT 1 FROM comment_likes l WHERE l.comment = c.id AND l.guest = ?1) liked,
+        EXISTS (SELECT 1 FROM reports r WHERE r.comment = c.id AND r.guest = ?1) reported
+      FROM comments c WHERE c.post = ?2 ORDER BY c.ts DESC, c.id DESC LIMIT ?3`).bind(isGuest(guest) ? guest : '', slug, LIMITS.perPost),
     env.DB.prepare('SELECT COUNT(*) n FROM comments WHERE post = ?').bind(slug),
     env.DB.prepare('SELECT COUNT(*) n FROM likes WHERE post = ?').bind(slug),
     env.DB.prepare('SELECT COUNT(*) n FROM likes WHERE post = ? AND guest = ?').bind(slug, isGuest(guest) ? guest : ''),
@@ -298,12 +316,26 @@ async function addComment(req, env, slug) {
   const guest = isGuest(b.guest) ? b.guest : null;
   if (guest && (await count(env, 'SELECT COUNT(*) n FROM comments WHERE post = ? AND guest = ? AND body = ? AND ts > ?', slug, guest, body, now() - 10 * MIN)))
     throw new HttpError(409, 'You already posted that.');
-  const row = await env.DB.prepare(`INSERT INTO comments (post, name, body, ts, owner, guest, ip, country, region, city)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, name, body, ts, owner, guest`)
-    .bind(slug, name || String(env.OWNER_NAME || 'admin'), body, now(), admin ? 1 : 0, guest, c.ip || null, c.country, c.region, c.city)
+  // an answer hangs under the reply it answers; answers to answers go under the same top reply (one level of nesting)
+  let parent = null;
+  if (b.parent != null && b.parent !== '') {
+    const p = Number.isSafeInteger(Number(b.parent)) && (await env.DB.prepare('SELECT id, parent FROM comments WHERE id = ? AND post = ?').bind(Number(b.parent), slug).first());
+    if (!p) throw new HttpError(404, 'The reply you answered was deleted.');
+    parent = p.parent || p.id;
+  }
+  const row = await env.DB.prepare(`INSERT INTO comments (post, name, body, ts, owner, guest, ip, country, region, city, parent)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id, name, body, ts, owner, guest, parent`)
+    .bind(slug, name || String(env.OWNER_NAME || 'admin'), body, now(), admin ? 1 : 0, guest, c.ip || null, c.country, c.region, c.city, parent)
     .first();
   return json({ comment: shape(row, guest) }, 201);
 }
+// a reply goes with its likes and reports; answers to it stay, as top-level replies
+const removeComment = (env, id) => env.DB.batch([
+  env.DB.prepare('UPDATE comments SET parent = NULL WHERE parent = ?').bind(id),
+  env.DB.prepare('DELETE FROM comment_likes WHERE comment = ?').bind(id),
+  env.DB.prepare('DELETE FROM reports WHERE comment = ?').bind(id),
+  env.DB.prepare('DELETE FROM comments WHERE id = ?').bind(id),
+]);
 async function deleteComment(req, env, slug, id) {
   const b = await readBody(req);
   if (burst('delete', client(req).ip, 20, MIN)) throw new HttpError(429, 'Too many deletes. Try again in a minute.');
@@ -311,8 +343,60 @@ async function deleteComment(req, env, slug, id) {
   if (!row) throw new HttpError(404, 'That comment is already gone.');
   const own = isGuest(b.guest) && row.guest === b.guest;
   if (!own && !(await isAdmin(req, env))) throw new HttpError(403, 'You can only delete your own comments.');
-  await env.DB.prepare('DELETE FROM comments WHERE id = ?').bind(id).run();
+  await removeComment(env, id);
   return json({ ok: true });
+}
+async function likeComment(req, env, slug, id) {
+  const b = await readBody(req), c = client(req);
+  if (!isGuest(b.guest)) throw new HttpError(400, 'Reload the page and try again.');
+  if (burst('like', c.ip, 30, MIN)) throw new HttpError(429, 'Too many likes. Try again in a minute.');
+  if (await isBlocked(env, c.ip)) throw new HttpError(403, "Likes from your network aren't allowed.");
+  if (!(await env.DB.prepare('SELECT 1 x FROM comments WHERE id = ? AND post = ?').bind(id, slug).first())) throw new HttpError(404, 'That reply was deleted.');
+  if (b.like) {
+    if ((await count(env, 'SELECT COUNT(*) n FROM comment_likes WHERE ip = ? AND ts > ?', c.ip, now() - HOUR)) >= 120) throw new HttpError(429, 'Too many likes. Try again later.');
+    await env.DB.prepare('INSERT OR IGNORE INTO comment_likes (comment, guest, ts, ip) VALUES (?, ?, ?, ?)').bind(id, b.guest, now(), c.ip || null).run();
+  } else {
+    await env.DB.prepare('DELETE FROM comment_likes WHERE comment = ? AND guest = ?').bind(id, b.guest).run();
+  }
+  const [n, mine] = await env.DB.batch([
+    env.DB.prepare('SELECT COUNT(*) n FROM comment_likes WHERE comment = ?').bind(id),
+    env.DB.prepare('SELECT COUNT(*) n FROM comment_likes WHERE comment = ? AND guest = ?').bind(id, b.guest),
+  ]);
+  return json({ likes: n.results[0].n, liked: mine.results[0].n > 0 });
+}
+async function reportComment(req, env, slug, id) {
+  const b = await readBody(req), c = client(req);
+  if (!isGuest(b.guest)) throw new HttpError(400, 'Reload the page and try again.');
+  if (burst('report', c.ip, 10, MIN)) throw new HttpError(429, 'Too many reports. Try again in a minute.');
+  if (await isBlocked(env, c.ip)) throw new HttpError(403, "Reports from your network aren't allowed.");
+  const row = await env.DB.prepare('SELECT guest, owner FROM comments WHERE id = ? AND post = ?').bind(id, slug).first();
+  if (!row) throw new HttpError(404, 'That reply was deleted.');
+  if (row.guest === b.guest) throw new HttpError(400, "That's your own reply: you can delete it instead.");
+  if (row.owner) throw new HttpError(400, "The author's replies can't be reported.");
+  if ((await count(env, 'SELECT COUNT(*) n FROM reports WHERE ip = ? AND ts > ?', c.ip, now() - HOUR)) >= 30) throw new HttpError(429, 'Too many reports. Try again later.');
+  await env.DB.prepare('INSERT OR IGNORE INTO reports (comment, guest, ts, ip, reason) VALUES (?, ?, ?, ?, ?)')
+    .bind(id, b.guest, now(), c.ip || null, cleanText(b.reason).slice(0, 300) || null).run();
+  return json({ ok: true });
+}
+// the footer's Online statistics and the owner's live Messages / Reaction score. owner: signed in to /admin and
+// active in the last 5 minutes (any admin request, or /admin/seen from a page they're reading)
+async function siteStats(env) {
+  const [online, replies, own, likes, seen] = (await env.DB.batch([
+    env.DB.prepare(`SELECT COUNT(DISTINCT ${WHO}) n FROM visits WHERE ts > ? AND bot = 0`).bind(now() - 5 * MIN),
+    env.DB.prepare('SELECT COUNT(*) n FROM comments'),
+    env.DB.prepare('SELECT COUNT(*) n FROM comments WHERE owner = 1'),
+    env.DB.prepare('SELECT (SELECT COUNT(*) FROM likes) + (SELECT COUNT(*) FROM comment_likes l JOIN comments c ON c.id = l.comment WHERE c.owner = 1) n'),
+    env.DB.prepare("SELECT COALESCE((SELECT CAST(v AS INTEGER) FROM meta WHERE k = 'owner_seen'), 0) n"),
+  ])).map((r) => r.results[0].n);
+  return json({ online, owner: seen > now() - 5 * MIN, replies, ownerReplies: own, likes }, 200, { 'cache-control': 'public, max-age=30' });
+}
+// at most one write a minute per isolate (and database)
+const seenAt = new WeakMap();
+async function ownerSeen(env) {
+  const t = now();
+  if (t - (seenAt.get(env.DB) || 0) < MIN) return;
+  seenAt.set(env.DB, t);
+  await env.DB.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('owner_seen', ?)").bind(String(t)).run();
 }
 async function like(req, env, slug) {
   const b = await readBody(req), c = client(req);
@@ -453,18 +537,30 @@ async function visitors(req, env) {
 async function adminComments(req, env) {
   const p = new URL(req.url).searchParams, limit = Math.max(1, Math.min(200, Number(p.get('limit')) || 50));
   const before = Number(p.get('before')) > 0 ? Number(p.get('before')) : Number.MAX_SAFE_INTEGER;
-  const rows = await env.DB.prepare(`SELECT c.id, c.post, c.name, c.body, c.ts, c.owner, c.guest, c.ip, c.country, c.region, c.city,
+  const reported = p.get('reported') === '1';   // only replies readers flagged
+  const rows = await env.DB.prepare(`SELECT c.id, c.post, c.name, c.body, c.ts, c.owner, c.guest, c.ip, c.country, c.region, c.city, c.parent,
+      (SELECT name FROM comments pc WHERE pc.id = c.parent) parent_name,
+      (SELECT COUNT(*) FROM comment_likes l WHERE l.comment = c.id) likes,
+      (SELECT COUNT(*) FROM reports r WHERE r.comment = c.id) reports,
+      (SELECT group_concat(reason, ' | ') FROM reports r WHERE r.comment = c.id AND reason IS NOT NULL) reasons,
       EXISTS (SELECT 1 FROM blocks b WHERE b.ip = c.ip) blocked
-    FROM comments c WHERE c.id < ? ORDER BY c.id DESC LIMIT ?`).bind(before, limit).all();
-  const total = await count(env, 'SELECT COUNT(*) n FROM comments');
-  return json({ total, comments: rows.results.map((r) => ({ ...r, owner: !!r.owner, blocked: !!r.blocked })) });
+    FROM comments c WHERE c.id < ? ${reported ? 'AND EXISTS (SELECT 1 FROM reports r WHERE r.comment = c.id)' : ''} ORDER BY c.id DESC LIMIT ?`).bind(before, limit).all();
+  const [total, flagged] = await Promise.all([count(env, 'SELECT COUNT(*) n FROM comments'), count(env, 'SELECT COUNT(DISTINCT comment) n FROM reports')]);
+  return json({ total, reported: flagged, comments: rows.results.map((r) => ({ ...r, owner: !!r.owner, blocked: !!r.blocked })) });
 }
+// what hung on replies that are gone: answers move up, likes and reports go
+const orphans = (env) => [
+  env.DB.prepare('UPDATE comments SET parent = NULL WHERE parent IS NOT NULL AND parent NOT IN (SELECT id FROM comments)'),
+  env.DB.prepare('DELETE FROM comment_likes WHERE comment NOT IN (SELECT id FROM comments)'),
+  env.DB.prepare('DELETE FROM reports WHERE comment NOT IN (SELECT id FROM comments)'),
+];
 const IP_RE = /^[0-9a-f:.]{3,45}$/i;
 async function block(req, env) {
   const b = await readBody(req), ip = str(b.ip, 64);
   if (!IP_RE.test(ip)) throw new HttpError(400, 'Not an IP address.');
   const q = [env.DB.prepare('INSERT OR REPLACE INTO blocks (ip, ts, note) VALUES (?, ?, ?)').bind(ip, now(), str(b.note, 200) || null)];
-  if (b.purge) q.push(env.DB.prepare('DELETE FROM comments WHERE ip = ? AND owner = 0').bind(ip), env.DB.prepare('DELETE FROM likes WHERE ip = ?').bind(ip));
+  if (b.purge) q.push(env.DB.prepare('DELETE FROM comments WHERE ip = ? AND owner = 0').bind(ip), env.DB.prepare('DELETE FROM likes WHERE ip = ?').bind(ip),
+    env.DB.prepare('DELETE FROM comment_likes WHERE ip = ?').bind(ip), ...orphans(env));
   const res = await env.DB.batch(q);
   return json({ ok: true, removedComments: b.purge ? res[1].meta.changes : 0 });
 }
@@ -485,8 +581,13 @@ async function route(req, env) {
   if ((m = /^\/posts\/([^/]+)\/comments$/.exec(path)) && M === 'POST') return addComment(req, env, param(m[1]));
   if ((m = /^\/posts\/([^/]+)\/comments\/(\d+)\/delete$/.exec(path)) && M === 'POST') return deleteComment(req, env, param(m[1]), Number(m[2]));
   if ((m = /^\/posts\/([^/]+)\/like$/.exec(path)) && M === 'POST') return like(req, env, param(m[1]));
+  if ((m = /^\/posts\/([^/]+)\/comments\/(\d+)\/like$/.exec(path)) && M === 'POST') return likeComment(req, env, param(m[1]), Number(m[2]));
+  if ((m = /^\/posts\/([^/]+)\/comments\/(\d+)\/report$/.exec(path)) && M === 'POST') return reportComment(req, env, param(m[1]), Number(m[2]));
+  if (path === '/site-stats' && M === 'GET') return siteStats(env);
   if (path.startsWith('/admin/')) {
     await needAdmin(req, env);
+    await ownerSeen(env);
+    if (path === '/admin/seen' && M === 'POST') return json({ ok: true });
     if (path === '/admin/me' && M === 'GET') return json({ ok: true, version: env.API_VERSION || 'dev', retentionDays: Number(env.RETENTION_DAYS) || 90 });
     if (path === '/admin/stats' && M === 'GET') return stats(req, env);
     if (path === '/admin/visits' && M === 'GET') return visits(req, env);
@@ -495,8 +596,9 @@ async function route(req, env) {
     if (path === '/admin/live' && M === 'GET') return json({ live: await count(env, `SELECT COUNT(DISTINCT ${WHO}) n FROM visits WHERE ts > ? AND bot = 0`, now() - 5 * MIN) });
     if (path === '/admin/visitors' && M === 'GET') return visitors(req, env);
     if (path === '/admin/comments' && M === 'GET') return adminComments(req, env);
-    if ((m = /^\/admin\/comments\/(\d+)\/delete$/.exec(path)) && M === 'POST') {
-      await env.DB.prepare('DELETE FROM comments WHERE id = ?').bind(Number(m[1])).run();
+    if ((m = /^\/admin\/comments\/(\d+)\/delete$/.exec(path)) && M === 'POST') { await removeComment(env, Number(m[1])); return json({ ok: true }); }
+    if ((m = /^\/admin\/comments\/(\d+)\/dismiss$/.exec(path)) && M === 'POST') {
+      await env.DB.prepare('DELETE FROM reports WHERE comment = ?').bind(Number(m[1])).run();
       return json({ ok: true });
     }
     if (path === '/admin/blocks' && M === 'GET') return json({ blocks: (await env.DB.prepare('SELECT ip, ts, note FROM blocks ORDER BY ts DESC').all()).results });
@@ -534,6 +636,9 @@ export default {
       env.DB.prepare('DELETE FROM visits WHERE ts < ?').bind(cutoff),
       env.DB.prepare('UPDATE comments SET ip = NULL, country = NULL, region = NULL, city = NULL WHERE ts < ? AND (ip IS NOT NULL OR country IS NOT NULL OR region IS NOT NULL OR city IS NOT NULL)').bind(cutoff),
       env.DB.prepare('UPDATE likes SET ip = NULL WHERE ts < ? AND ip IS NOT NULL').bind(cutoff),
+      env.DB.prepare('UPDATE comment_likes SET ip = NULL WHERE ts < ? AND ip IS NOT NULL').bind(cutoff),
+      env.DB.prepare('UPDATE reports SET ip = NULL WHERE ts < ? AND ip IS NOT NULL').bind(cutoff),
+      ...orphans(env),
       env.DB.prepare('DELETE FROM admin_tokens WHERE until < ?').bind(now()),
     ]);
   },

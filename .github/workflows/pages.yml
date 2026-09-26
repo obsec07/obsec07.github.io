@@ -9,6 +9,9 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # hourly: publishes scheduled posts when their time comes (deploys only then; see scripts/due.mjs)
+  schedule:
+    - cron: '17 * * * *'
 
 permissions:
   contents: read
@@ -20,9 +23,29 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # pushes and manual runs always deploy; the hourly run only when a scheduled post is due and not live yet
+  due:
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.due.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+        if: github.event_name == 'schedule'
+      - id: pages
+        if: github.event_name == 'schedule'
+        uses: actions/configure-pages@v5
+      - id: due
+        env:
+          EVENT: ${{ github.event_name }}
+          SITE_URL: ${{ steps.pages.outputs.base_url }}
+        run: |
+          if [ "$EVENT" = "schedule" ]; then node scripts/due.mjs; else echo "run=true" >> "$GITHUB_OUTPUT"; fi
+
   # the comments / likes / visitor-stats API: deployed only when its code or settings changed; without the secret this
   # just says so and the site builds without those features. Never blocks the site: a failure keeps the running version.
   api:
+    needs: due
+    if: needs.due.outputs.run == 'true'
     runs-on: ubuntu-latest
     outputs:
       url: ${{ steps.api.outputs.url }}
@@ -44,8 +67,8 @@ jobs:
           SITE_URL: ${{ steps.pages.outputs.base_url }}
 
   build:
-    needs: api
-    if: ${{ !cancelled() }}
+    needs: [due, api]
+    if: ${{ !cancelled() && needs.due.outputs.run == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

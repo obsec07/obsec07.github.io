@@ -344,7 +344,7 @@ test('upgrading a database from before view counts fills them from the visits it
   env = { ...env, DB: { ...env.DB } };                               // a new Worker instance on the same database
   await call('GET', '/health');
   assert.deepEqual(rows('SELECT post, views FROM post_views ORDER BY post'), [{ post: 'hello-world', views: 2 }, { post: 'second-post', views: 1 }]);
-  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '2');
+  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '3');
 });
 
 test('admin: per-post stats, visits as CSV (formula-safe), online now', async () => {
@@ -369,4 +369,115 @@ test('admin: per-post stats, visits as CSV (formula-safe), online now', async ()
   assert.equal((await call('GET', '/admin/visits.csv')).status, 401);
 
   assert.deepEqual((await call('GET', '/admin/live', { token: GOOD })).data, { live: 2 });
+});
+
+test('answers to replies: nested one level, only on the same post, moved up when their reply is deleted', async () => {
+  const a = (await comment('hello-world', { body: 'top' })).data.comment;
+  assert.equal(a.parent, null);
+  const b = (await comment('hello-world', { body: '@Alice answer', parent: a.id, guest: G2, name: 'Bob' }, { ip: '198.51.100.60' })).data.comment;
+  assert.equal(b.parent, a.id);
+  const c = (await comment('hello-world', { body: '@Bob answer to the answer', parent: b.id }, { ip: '198.51.100.61' })).data.comment;
+  assert.equal(c.parent, a.id);                                                    // under the same top reply
+  assert.equal((await comment('hello-world', { body: 'x', parent: 99999 }, { ip: '198.51.100.62' })).status, 404);
+  assert.equal((await comment('second-post', { body: 'x', parent: a.id }, { ip: '198.51.100.63' })).status, 404);   // another post's reply
+  const list = (await call('GET', `/posts/hello-world?g=${G1}`)).data.comments;
+  assert.deepEqual(list.map((x) => [x.body, x.parent]), [['top', null], ['@Alice answer', a.id], ['@Bob answer to the answer', a.id]]);
+  assert.equal((await call('POST', `/posts/hello-world/comments/${a.id}/delete`, { body: { guest: G1 } })).status, 200);
+  assert.deepEqual(rows('SELECT body, parent FROM comments ORDER BY id').map((r) => [r.body, r.parent]), [['@Alice answer', null], ['@Bob answer to the answer', null]]);
+});
+
+test('likes on replies: one per guest, toggles, shown per reply', async () => {
+  const a = (await comment('hello-world', { body: 'likeable' })).data.comment;
+  const likeIt = (guest, on, id = a.id, slug = 'hello-world') => call('POST', `/posts/${slug}/comments/${id}/like`, { body: { guest, like: on } });
+  assert.deepEqual((await likeIt(G2, true)).data, { likes: 1, liked: true });
+  assert.deepEqual((await likeIt(G2, true)).data, { likes: 1, liked: true });
+  assert.deepEqual((await likeIt(G1, true)).data, { likes: 2, liked: true });
+  assert.deepEqual((await likeIt(G1, false)).data, { likes: 1, liked: false });
+  assert.equal((await likeIt('nope', true)).status, 400);
+  assert.equal((await likeIt(G1, true, a.id, 'second-post')).status, 404);      // not a reply of that post
+  const seen = (await call('GET', `/posts/hello-world?g=${G2}`)).data.comments[0];
+  assert.deepEqual([seen.likes, seen.liked], [1, true]);
+  assert.equal((await call('GET', `/posts/hello-world?g=${G1}`)).data.comments[0].liked, false);
+  await call('POST', `/posts/hello-world/comments/${a.id}/delete`, { body: { guest: G1 } });
+  assert.equal(rows('SELECT COUNT(*) n FROM comment_likes')[0].n, 0);            // gone with the reply
+});
+
+test('reporting a reply: once per guest, not your own, listed for the owner, dismissable', async () => {
+  const a = (await comment('hello-world', { body: 'rude' })).data.comment;
+  const report = (guest, reason, opts = {}) => call('POST', `/posts/hello-world/comments/${a.id}/report`, { ...opts, body: { guest, reason } });
+  assert.equal((await report(G1, 'mine')).status, 400);                         // your own: delete it instead
+  assert.equal((await report(G2, 'spam link')).status, 200);
+  assert.equal((await report(G2, 'again')).status, 200);                        // no double count
+  assert.equal((await call('GET', `/posts/hello-world?g=${G2}`)).data.comments[0].reported, true);
+  assert.equal((await call('GET', `/posts/hello-world?g=${G1}`)).data.comments[0].reported, false);
+  const all = (await call('GET', '/admin/comments', { token: GOOD })).data;
+  assert.equal(all.reported, 1);
+  assert.deepEqual([all.comments[0].reports, all.comments[0].reasons], [1, 'spam link']);
+  await comment('hello-world', { body: 'fine' }, { ip: '198.51.100.70' });
+  assert.deepEqual((await call('GET', '/admin/comments?reported=1', { token: GOOD })).data.comments.map((c) => c.body), ['rude']);
+  assert.equal((await call('POST', `/admin/comments/${a.id}/dismiss`, { token: GOOD })).status, 200);
+  assert.equal((await call('GET', '/admin/comments', { token: GOOD })).data.reported, 0);
+  assert.equal((await call('POST', `/admin/comments/${a.id}/dismiss`)).status, 401);
+});
+
+test("reports: not the author's replies, not from blocked networks, at most 30 an hour per IP", async () => {
+  const o = (await comment('hello-world', { name: 'tobi', body: 'from the author', guest: undefined }, { token: GOOD })).data.comment;
+  const g = (await comment('hello-world', { body: 'a guest reply' })).data.comment;
+  const report = (id, opts = {}) => call('POST', `/posts/hello-world/comments/${id}/report`, { ...opts, body: { guest: G2, reason: 'x' } });
+  assert.equal((await report(o.id, { ip: '198.51.100.91' })).status, 400);
+  await call('POST', '/admin/blocks', { token: GOOD, body: { ip: '198.51.100.92' } });
+  assert.equal((await report(g.id, { ip: '198.51.100.92' })).status, 403);
+  const ins = env.DB.sqlite.prepare('INSERT INTO reports (comment, guest, ts, ip) VALUES (?, ?, ?, ?)');
+  for (let i = 0; i < 30; i++) ins.run(1000 + i, String(i).padStart(32, 'e'), Date.now(), '198.51.100.93');
+  assert.equal((await report(g.id, { ip: '198.51.100.93' })).status, 429);
+  assert.equal((await report(g.id, { ip: '198.51.100.94' })).status, 200);
+});
+
+test('site stats: online now, replies, the owner\'s replies and the likes they received', async () => {
+  await call('POST', '/hit', { body: { path: '/', guest: G1 } });
+  await call('POST', '/hit', { ip: '198.51.100.80', body: { path: '/', guest: G2 } });
+  const g = (await comment('hello-world', { body: 'guest reply' })).data.comment;
+  const o = (await comment('hello-world', { name: 'tobi', body: 'owner reply', guest: undefined }, { token: GOOD })).data.comment;
+  await call('POST', '/posts/hello-world/like', { body: { guest: G2, like: true } });
+  await call('POST', `/posts/hello-world/comments/${o.id}/like`, { body: { guest: G2, like: true } });
+  await call('POST', `/posts/hello-world/comments/${g.id}/like`, { body: { guest: G2, like: true } });   // not the owner's
+  const s = await call('GET', '/site-stats');
+  assert.deepEqual(s.data, { online: 2, owner: false, replies: 2, ownerReplies: 1, likes: 2 });
+  assert.match(s.headers.get('cache-control'), /max-age=30/);
+});
+
+test('site stats: the owner counts as online for 5 minutes after /admin/seen or any admin request', async () => {
+  assert.equal((await call('POST', '/admin/seen')).status, 401);
+  assert.equal((await call('POST', '/admin/seen', { token: READER })).status, 401);
+  assert.equal((await call('GET', '/site-stats')).data.owner, false);
+  assert.equal((await call('POST', '/admin/seen', { token: GOOD })).status, 200);
+  assert.equal((await call('GET', '/site-stats')).data.owner, true);
+  env.DB.sqlite.exec("UPDATE meta SET v = CAST(v AS INTEGER) - 6 * 60000 WHERE k = 'owner_seen'");
+  assert.equal((await call('GET', '/site-stats')).data.owner, false);
+  await call('GET', '/admin/me', { token: GOOD });   // within the minute: not written again
+  assert.equal((await call('GET', '/site-stats')).data.owner, false);
+  env = { ...env, DB: { ...env.DB } };               // another isolate
+  await call('GET', '/admin/me', { token: GOOD });
+  assert.equal((await call('GET', '/site-stats')).data.owner, true);
+});
+
+test('upgrading a database from before answers (schema 2) adds them without losing replies', async () => {
+  await comment('hello-world', { body: 'old reply' });
+  env.DB.sqlite.exec("DROP INDEX comments_parent; ALTER TABLE comments DROP COLUMN parent; DROP TABLE comment_likes; DROP TABLE reports; UPDATE meta SET v = '2' WHERE k = 'schema'");
+  env = { ...env, DB: { ...env.DB } };
+  const d = (await call('GET', '/posts/hello-world')).data;
+  assert.deepEqual(d.comments.map((c) => [c.body, c.parent, c.likes]), [['old reply', null, 0]]);
+  assert.ok(rows("SELECT name FROM sqlite_master WHERE name IN ('comment_likes', 'reports') ORDER BY name").length === 2);
+  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '3');
+});
+
+test('clean-up: old reply likes and reports lose their IP; likes of deleted replies go', async () => {
+  const a = (await comment('hello-world', { body: 'x' })).data.comment;
+  await call('POST', `/posts/hello-world/comments/${a.id}/like`, { body: { guest: G2, like: true } });
+  await call('POST', `/posts/hello-world/comments/${a.id}/report`, { body: { guest: G2, reason: 'r' } });
+  env.DB.sqlite.exec('UPDATE comment_likes SET ts = ts - 91 * 86400000; UPDATE reports SET ts = ts - 91 * 86400000');
+  env.DB.sqlite.prepare('INSERT INTO comment_likes (comment, guest, ts) VALUES (424242, ?, ?)').run(G1, Date.now());   // a leftover
+  await worker.scheduled({}, env);
+  assert.deepEqual(rows('SELECT comment, ip FROM comment_likes'), [{ comment: a.id, ip: null }]);
+  assert.deepEqual(rows('SELECT ip FROM reports'), [{ ip: null }]);
 });
