@@ -2,7 +2,7 @@
 import '../styles/global.css';
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
-import { SITE, STATIC_SITE } from '../config';
+import { SITE, STATIC_SITE, API_URL } from '../config';
 import ProfileCard from '../components/ProfileCard.astro';
 // shownPosts: ids of the posts this page already lists; the footer's "Latest posts" skips them (no post twice on a page)
 interface Props { title?: string; description?: string; noindex?: boolean; shownPosts?: string[]; }
@@ -14,6 +14,7 @@ const favicon = "data:image/svg+xml," + encodeURIComponent(
 );
 const rssHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/rss.xml').replace(/\/{2,}/g, '/');
 const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').replace(/\/{2,}/g, '/');
+const privacyHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/privacy').replace(/\/{2,}/g, '/');
 ---
 <!doctype html>
 <html lang="en">
@@ -46,23 +47,41 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
     <link rel="icon" href={favicon} />
     <link rel="alternate" type="application/rss+xml" title={SITE.title} href={rssHref} />
   </head>
-  <body>
+  <body data-api={API_URL || undefined}>
     <Header />
     <main class="wrap">
       <slot />
     </main>
     <Footer exclude={shownPosts} />
     <div class="cookie" id="cookie" style="display:none">
-      <p>This site uses cookies to help personalise content, tailor your experience and to keep you logged in if you register. By continuing to use this site, you are consenting to our use of cookies.</p>
+      {API_URL
+        ? <p>This site uses a cookie to remember you as a guest (for your likes and replies) and counts visits, including your IP address and approximate location. By continuing to use this site, you are consenting to our use of cookies.</p>
+        : <p>This site uses cookies to help personalise content, tailor your experience and to keep you logged in if you register. By continuing to use this site, you are consenting to our use of cookies.</p>}
       <div class="btns">
         <button class="b ok" id="cookie-ok"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>Accept</button>
-        <a class="b" href={whoamiHref}>Learn more…</a>
+        <a class="b" href={API_URL ? privacyHref : whoamiHref}>Learn more…</a>
       </div>
     </div>
     <button class="to-top" id="to-top" type="button" title="Back to top" aria-label="Back to top">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 15 12 9 18 15"/></svg>
     </button>
     <div id="uprofile-host">{STATIC_SITE ? <ProfileCard /> : <Fragment set:html={'<!--UPROFILE-->'} />}</div>
+    {API_URL && (
+      <script is:inline>
+        // the guest cookie (a random id: your likes, your replies, unique-visitor counts) and this page view.
+        // Visits of the owner, signed in to /admin, aren't counted.
+        (function () {
+          var api = document.body.getAttribute('data-api'); if (!api) return;
+          var m = /(?:^|;\s*)guest=([a-f0-9]{32})/.exec(document.cookie), id = m && m[1];
+          if (!id) { var a = new Uint8Array(16); crypto.getRandomValues(a); id = Array.prototype.map.call(a, function (b) { return (b < 16 ? '0' : '') + b.toString(16); }).join(''); }
+          document.cookie = 'guest=' + id + '; Max-Age=31536000; Path=/; SameSite=Lax' + (location.protocol === 'https:' ? '; Secure' : '');
+          try { if (sessionStorage.getItem('adm') || localStorage.getItem('adm')) return; } catch (e) {}
+          var data = JSON.stringify({ path: location.pathname, ref: document.referrer, title: document.title, guest: id, lang: navigator.language, screen: screen.width + 'x' + screen.height });
+          try { if (navigator.sendBeacon && navigator.sendBeacon(api + '/hit', data)) return; } catch (e) {}
+          fetch(api + '/hit', { method: 'POST', body: data, keepalive: true, headers: { 'Content-Type': 'text/plain' } }).catch(function () {});
+        })();
+      </script>
+    )}
     <script is:inline>
       (function () {
         try {

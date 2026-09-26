@@ -1,0 +1,39 @@
+---
+// What the site stores about visitors. With the comments API on, it counts visits (IP address, approximate location)
+// and sets the guest cookie; the cookie banner's "Learn more…" and the footer link here.
+import Base from '../layouts/Base.astro';
+import { SITE, API_URL, STATIC_SITE } from '../config';
+---
+<Base title="Privacy" description={`What ${SITE.handle} stores about visitors.`}>
+  <div class="page-head"><h1>Privacy</h1><p>What this site stores about you, and why.</p></div>
+  <div class="message privacy">
+    <div class="prose">
+      {API_URL ? (
+        <Fragment>
+          <h2>Visits</h2>
+          <p>When you open a page, the site records it so {SITE.handle} can see how the blog is read:</p>
+          <ul>
+            <li>the page, when, and the site you came from (if any);</li>
+            <li>your <strong>IP address</strong> and the <strong>approximate location</strong> it points to (country, region, city) and network provider;</li>
+            <li>your browser, operating system, device type, screen size and language.</li>
+          </ul>
+          <p>Only the site owner can see this, in the site's admin panel. It is deleted after 90 days.</p>
+
+          <h2>The guest cookie</h2>
+          <p>A cookie called <code>guest</code> holds a random number that tells your browser apart from others. It remembers your likes, lets you delete your own replies and counts unique visitors. It contains nothing about you and lasts a year; delete it to become a new guest. There are no ads, and no third-party trackers.</p>
+
+          <h2>Replies and likes</h2>
+          <p>A reply shows the name you enter and your text, to everyone. The IP address and approximate location it was sent from are kept with it for the owner only, to fight spam, and removed after 90 days. Likes are counted, not shown by name.</p>
+
+          <h2>Where it is kept</h2>
+          <p>On Cloudflare, which runs the small server behind replies, likes and visit counts. The site's pages are hosted on GitHub Pages.</p>
+        </Fragment>
+      ) : STATIC_SITE ? (
+        <p>This site doesn't record visits or set cookies. Your browser only remembers your light/dark choice and that you closed the cookie notice.</p>
+      ) : (
+        <p>Registering stores your username, email and a hashed password; signing in sets a session cookie. Comments show your username. The server logs IP addresses of sign-ins and changes, to fight abuse.</p>
+      )}
+      {SITE.email && <p>Questions, or want a reply removed? Email <a href={`mailto:${SITE.email}`}>{SITE.email}</a>.</p>}
+    </div>
+  </div>
+</Base>

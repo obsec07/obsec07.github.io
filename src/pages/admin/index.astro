@@ -1,16 +1,20 @@
 ---
 // /admin — post editor for the static site. Two ways in:
 //   - an access token (a GitHub fine-grained token with Contents: read/write on this repo): works with no setup; it
-//     stays in this browser and is only sent to GitHub;
+//     stays in this browser and is only sent to GitHub and to this site's own comments API;
 //   - username + password, if the ADMIN_PASSWORD / ADMIN_TOKEN secrets are set: the password decrypts the token sealed
 //     in /admin/vault.json (see vault.json.js).
-// Tabs: Posts (write / edit / delete), Profile (username, photo, title, about, email, links) and Site (site name,
-// description, announcement, blog names, the Who Am I text). Everything goes through the GitHub API; every save is a
-// commit to `main`, which redeploys the site. The Node server has its own /login + /admin-panel instead.
+// Tabs: Posts (write / edit / delete), Profile (username, photo, title, about, email, links), Site (site name,
+// description, announcement, blog names, the Who Am I text), Analytics (visitors, their IP address + location, pages,
+// referrers, devices) and Comments (guest replies: delete, block an IP). Posts/Profile/Site go through the GitHub API;
+// every save is a commit to `main`, which redeploys the site. Analytics/Comments come from the comments API (api/),
+// which the token is also sent to: it asks GitHub whether the token may write to this repo. The Node server has its
+// own /login + /admin-panel instead.
 import Base from '../../layouts/Base.astro';
-import { SITE, STATIC_SITE, CATEGORY_LABELS, profileUrl } from '../../config';
+import { SITE, STATIC_SITE, CATEGORY_LABELS, API_URL, API_STATE, profileUrl } from '../../config';
 import { CATEGORIES, LIMITS } from '../../lib/settings';
 import { SOCIAL_NETWORKS } from '../../lib/socials';
+import SetupGuide from '../../components/SetupGuide.astro';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
 // pages not in the sitemap that still show posts; refreshed in the browser after a change goes live
@@ -21,7 +25,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
   {!STATIC_SITE ? (
     <div class="acct-empty">This server has its own admin: <a href="/login">log in</a>, then open the admin panel.</div>
   ) : (
-    <div id="adm" data-repo={repo} data-vault={`${base}/admin/vault.json`} data-base={base} data-extra={JSON.stringify(extraPages)}>
+    <div id="adm" data-repo={repo} data-vault={`${base}/admin/vault.json`} data-base={base} data-extra={JSON.stringify(extraPages)} data-api={API_URL || undefined} data-handle={SITE.handle}>
       <section id="adm-login">
         <form class="acct-form adm-login" id="adm-token-form">
           <div class="frow"><div class="lab">Access token</div><div class="fld">
@@ -47,6 +51,8 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
           <button type="button" role="tab" data-tab="posts" class="on" aria-selected="true">Posts</button>
           <button type="button" role="tab" data-tab="profile" aria-selected="false">Profile</button>
           <button type="button" role="tab" data-tab="site" aria-selected="false">Site</button>
+          <button type="button" role="tab" data-tab="stats" aria-selected="false">Analytics</button>
+          <button type="button" role="tab" data-tab="comments" aria-selected="false">Comments</button>
         </div>
         <div id="adm-msg" class="acct-note" hidden></div>
         <div id="adm-deploy" class="acct-note" role="status" hidden></div>
@@ -103,6 +109,66 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
             <div class="hint">Markdown. <code>{'{handle}'}</code> becomes your username. Your email and links are listed under it automatically.</div></div></div>
           <div class="acct-actions"><span class="adm-err" id="adm-site-err" role="alert"></span><button class="save-btn" type="submit">Save site settings</button></div>
         </form>
+
+        {API_STATE === 'ok' ? (
+          <Fragment>
+            <div class="adm-pane st" id="st-pane" data-pane="stats" hidden>
+              <div class="st-filters">
+                <div class="st-range" id="st-range" role="group" aria-label="Period">
+                  <button type="button" data-days="1" aria-pressed="false">24 hours</button>
+                  <button type="button" data-days="7" aria-pressed="true">7 days</button>
+                  <button type="button" data-days="30" aria-pressed="false">30 days</button>
+                  <button type="button" data-days="90" aria-pressed="false">90 days</button>
+                </div>
+                <button type="button" class="st-btn" id="st-refresh">Refresh</button>
+              </div>
+              <div class="acct-note err" id="st-err" role="alert" hidden></div>
+              <div id="st-body">
+                <div class="st-kpis" id="st-kpis"></div>
+                <div class="st-card st-chart-card">
+                  <div class="st-card-head"><h3>Visitors and page views</h3>
+                    <div class="st-legend" aria-hidden="true"><span><i class="st-key s1"></i>Visitors</span><span><i class="st-key s2"></i>Page views</span></div></div>
+                  <div class="st-chart-wrap"><div class="st-chart" id="st-chart"></div><div class="st-tip" id="st-tip" hidden></div></div>
+                  <details class="st-tablebox"><summary>Show as a table</summary><table class="st-table" id="st-table"></table></details>
+                  <p class="st-note" id="st-bots"></p>
+                </div>
+                <div class="st-grid">
+                  <div class="st-card"><h3>Top pages <span class="st-unit">views</span></h3><div id="st-pages"></div></div>
+                  <div class="st-card"><h3>Came from <span class="st-unit">visitors</span></h3><div id="st-refs"></div></div>
+                  <div class="st-card"><h3>Countries <span class="st-unit">visitors</span></h3><div id="st-countries"></div></div>
+                  <div class="st-card"><h3>Cities <span class="st-unit">visitors</span></h3><div id="st-cities"></div></div>
+                  <div class="st-card"><h3>Devices <span class="st-unit">visitors</span></h3><div id="st-devices"></div></div>
+                  <div class="st-card"><h3>Browsers <span class="st-unit">visitors</span></h3><div id="st-browsers"></div></div>
+                  <div class="st-card"><h3>Operating systems <span class="st-unit">visitors</span></h3><div id="st-os"></div></div>
+                </div>
+              </div>
+              <div class="st-card">
+                <h3>Visitors</h3>
+                <p class="st-note">Each guest browser (its cookie), newest first: where they are, their IP address and what they did. Your own visits while signed in here aren't counted.</p>
+                <div class="acct-note err" id="st-visitors-err" role="alert" hidden></div>
+                <div id="st-visitors"></div>
+              </div>
+              <div class="st-card" id="st-visits-card">
+                <h3>Recent visits</h3>
+                <div id="st-visits-filter"></div>
+                <div class="acct-note err" id="st-visits-err" role="alert" hidden></div>
+                <div id="st-visits"></div>
+                <button type="button" class="st-btn st-more" id="st-visits-more" hidden>Show more</button>
+              </div>
+            </div>
+            <div class="adm-pane st" id="cm-pane" data-pane="comments" hidden>
+              <div class="st-filters"><h3 class="st-h" id="cm-count">Replies</h3><button type="button" class="st-btn" id="cm-refresh">Refresh</button></div>
+              <div class="acct-note err" id="cm-err" role="alert" hidden></div>
+              <div class="st-card"><div id="cm-list"></div><button type="button" class="st-btn st-more" id="cm-more" hidden>Show more</button></div>
+              <div class="st-card"><h3>Blocked IP addresses</h3><div id="cm-blocks"></div></div>
+            </div>
+          </Fragment>
+        ) : (
+          <Fragment>
+            <div class="adm-pane st-setup" data-pane="stats" hidden><SetupGuide /></div>
+            <div class="adm-pane st-setup" data-pane="comments" hidden><SetupGuide /></div>
+          </Fragment>
+        )}
       </section>
     </div>
   )}
@@ -111,6 +177,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
 <script>
   import yaml from 'js-yaml';
   import { validate, clean } from '../../lib/settings';
+  import { initStats } from '../../scripts/admin-stats';
 
   const root = document.getElementById('adm');
   if (root) {
@@ -409,13 +476,31 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       finally { btn.disabled = false; btn.textContent = label; }
     }
 
+    // ---- Analytics / Comments: the comments API (api/) ----
+    const stats = root.dataset.api ? initStats({ api: root.dataset.api, token: () => session && session.token, handle: root.dataset.handle, base: BASE }) : null;
+    // not set up yet: "Connect now" re-runs the deploy workflow (which deploys the API once the Cloudflare secret exists)
+    document.querySelectorAll('.st-connect').forEach((b) => b.addEventListener('click', async () => {
+      const msgs = document.querySelectorAll('.st-connect-msg'), say = (html) => msgs.forEach((m) => { m.innerHTML = html; });
+      const actions = `https://github.com/${REPO}/actions/workflows/pages.yml`;
+      b.disabled = true; say('Starting…');
+      try {
+        const r = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/pages.yml/dispatches`, { method: 'POST', cache: 'no-store',
+          headers: { Authorization: `Bearer ${session.token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' }, body: JSON.stringify({ ref: BRANCH }) });
+        if (r.status === 204) say('✓ Started. The site rebuilds in about 2 minutes; then reload this page.');
+        else say(`Your token can't start it (GitHub ${r.status}). Open <a href="${esc(actions)}" target="_blank" rel="noopener">Actions → Deploy to GitHub Pages</a> and press <b>Run workflow</b>, or just save any post.`);
+      } catch { say(`Couldn't reach GitHub. Open <a href="${esc(actions)}" target="_blank" rel="noopener">Actions → Deploy to GitHub Pages</a> and press <b>Run workflow</b>.`); }
+      finally { b.disabled = false; }
+    }));
+
     // ---- tabs ----
+    const TABS = ['posts', 'profile', 'site', 'stats', 'comments'];
     function showTab(k) {
-      if (!['posts', 'profile', 'site'].includes(k)) k = 'posts';
+      if (!TABS.includes(k)) k = 'posts';
       document.querySelectorAll('.adm-tabs [data-tab]').forEach((t) => { const on = t.dataset.tab === k; t.classList.toggle('on', on); t.setAttribute('aria-selected', String(on)); });
       document.querySelectorAll('#adm-app .adm-pane').forEach((p) => { p.hidden = p.dataset.pane !== k; });
       $('adm-new').hidden = k !== 'posts';
       history.replaceState(null, '', k === 'posts' ? location.pathname + location.search : `#${k}`);
+      if (stats) stats.show(k);
     }
 
     async function showApp() {
@@ -454,7 +539,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
     window.addEventListener('hashchange', () => {
       if (!session) return;
       const h = location.hash.slice(1);
-      if (h === 'new') { showTab('posts'); openEditor(null); } else if (h === 'profile' || h === 'site') showTab(h);
+      if (h === 'new') { showTab('posts'); openEditor(null); } else if (TABS.includes(h) && h !== 'posts') showTab(h);
     });
     $('adm-profile').addEventListener('submit', (e) => { e.preventDefault(); saveSettings(e.currentTarget, 'adm-profile-err', 'profile'); });
     $('adm-site').addEventListener('submit', (e) => { e.preventDefault(); saveSettings(e.currentTarget, 'adm-site-err', 'site settings'); });

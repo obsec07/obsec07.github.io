@@ -1,0 +1,193 @@
+---
+// Guest replies under a post (XenForo-style messages) and the post's Like button, from the comments API (api/).
+// No account needed: guests are recognised by their `guest` cookie (set in Base.astro), so they can delete their
+// own replies and un-like. Signed in to /admin, you reply as the author (with your photo and an "Author" badge) and
+// can delete any reply. Everything stays hidden if the API can't be reached.
+import { SITE, API_URL, avatarUrl, profileUrl } from '../config';
+interface Props { slug: string; }
+const { slug } = Astro.props;
+---
+<section class="replies" id="comments" data-api={API_URL} data-slug={slug} data-owner={SITE.handle} data-owner-av={avatarUrl(SITE.handle)} data-owner-url={profileUrl(SITE.handle)} hidden>
+  <h2 class="replies-head">Replies <span class="replies-n" id="replies-n"></span></h2>
+  <ol class="reply-list" id="reply-list"></ol>
+  <p class="reply-empty" id="reply-empty" hidden>No replies yet. Be the first to reply.</p>
+
+  <form class="reply reply-form" id="reply-form" novalidate>
+    <div class="reply-user"><span class="reply-av" id="reply-form-av" aria-hidden="true"></span></div>
+    <div class="reply-main">
+      <div class="reply-as" id="reply-as" hidden></div>
+      <label class="reply-name-field" id="reply-name-field">
+        <span class="sr">Your name</span>
+        <input type="text" name="name" maxlength="40" autocomplete="nickname" placeholder="Your name" required />
+      </label>
+      <label><span class="sr">Your reply</span><textarea name="body" rows="4" maxlength="2000" placeholder="Write your reply…" required></textarea></label>
+      <!-- spam trap: hidden from people, filled in by bots -->
+      <label class="reply-trap" aria-hidden="true">Website <input type="text" name="website" tabindex="-1" autocomplete="off" /></label>
+      <div class="reply-actions">
+        <span class="reply-err" id="reply-err" role="alert"></span>
+        <span class="reply-hint" id="reply-hint">No account needed. Your name and reply are public.</span>
+        <button class="reply-send" type="submit">
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>
+          Post reply
+        </button>
+      </div>
+    </div>
+  </form>
+</section>
+
+<script>
+  const box = document.getElementById('comments') as HTMLElement | null;
+  const likeBtn = document.getElementById('post-like') as HTMLButtonElement | null;
+  if (box && box.dataset.api) {
+    const API = box.dataset.api, SLUG = box.dataset.slug!, OWNER = box.dataset.owner!;
+    const $ = (id: string) => document.getElementById(id)!;
+    const list = $('reply-list'), form = $('reply-form') as HTMLFormElement, err = $('reply-err');
+    const f = form.elements as unknown as Record<string, HTMLInputElement & HTMLTextAreaElement>;
+    const shownAt = Date.now();
+    type Comment = { id: number; name: string; body: string; ts: number; owner: boolean; mine: boolean };
+    let comments: Comment[] = [], likes = 0, liked = false;
+
+    // the guest id from the cookie (Base.astro sets it before this runs; made here too, just in case)
+    function guest() {
+      const m = /(?:^|;\s*)guest=([a-f0-9]{32})/.exec(document.cookie);
+      if (m) return m[1];
+      const id = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
+      document.cookie = `guest=${id}; Max-Age=31536000; Path=/; SameSite=Lax${location.protocol === 'https:' ? '; Secure' : ''}`;
+      return id;
+    }
+    // signed in to /admin on this browser: reply as the author
+    function adminToken(): string | null {
+      try { const s = JSON.parse(sessionStorage.getItem('adm') || localStorage.getItem('adm') || 'null'); return s && s.token ? s.token : null; } catch { return null; }
+    }
+    const G = guest();
+    // text/plain keeps these simple requests (no CORS preflight); the owner's token needs a header
+    async function call(path: string, body?: object) {
+      const token = body ? adminToken() : null;
+      const r = await fetch(API + path, body
+        ? { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'text/plain', ...(token ? { Authorization: `Bearer ${token}` } : {}) } }
+        : { cache: 'no-store' });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || `Something went wrong (${r.status}). Try again.`);
+      return data;
+    }
+
+    const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+    function ago(ts: number) {
+      const s = (ts - Date.now()) / 1000, a = Math.abs(s);
+      if (a < 45) return 'Just now';
+      if (a < 3600) return rtf.format(Math.round(s / 60), 'minute');
+      if (a < 86400) return rtf.format(Math.round(s / 3600), 'hour');
+      if (a < 7 * 86400) return rtf.format(Math.round(s / 86400), 'day');
+      return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+    const el = (tag: string, cls = '', text = '') => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; };
+    // guests get a letter avatar in a colour of their own (like XenForo's default avatars)
+    function avatar(name: string, owner: boolean) {
+      if (owner) { const i = document.createElement('img'); i.className = 'reply-av'; i.src = box!.dataset.ownerAv!; i.alt = ''; i.width = i.height = 48; return i; }
+      const a = el('span', 'reply-av', ([...name.trim()][0] || '?').toUpperCase());
+      let h = 0; for (const ch of name.toLowerCase()) h = (h * 31 + ch.codePointAt(0)!) % 360;
+      a.style.setProperty('--h', String(h)); a.setAttribute('aria-hidden', 'true');
+      return a;
+    }
+    function item(c: Comment, n: number) {
+      const li = el('li', 'reply'); li.id = `comment-${c.id}`;
+      const user = el('div', 'reply-user');
+      user.append(avatar(c.name, c.owner));
+      const who = el('div', 'reply-who');
+      if (c.owner) { const a = el('a', 'reply-name', OWNER) as HTMLAnchorElement; a.href = box!.dataset.ownerUrl!; who.append(a, el('span', 'reply-badge', 'Author')); }
+      else who.append(el('span', 'reply-name', c.name), el('span', 'reply-role', 'Guest'));
+      user.append(who);
+      const main = el('div', 'reply-main');
+      const top = el('div', 'reply-top');
+      const t = el('time', '', ago(c.ts)); t.setAttribute('datetime', new Date(c.ts).toISOString()); t.title = new Date(c.ts).toLocaleString();
+      const num = el('a', 'reply-num', `#${n}`) as HTMLAnchorElement; num.href = `#comment-${c.id}`;
+      top.append(t, num);
+      const body = el('div', 'reply-body', c.body);
+      const foot = el('div', 'reply-foot');
+      const quote = el('button', 'reply-act', 'Reply') as HTMLButtonElement; quote.type = 'button'; quote.dataset.at = c.owner ? OWNER : c.name;
+      foot.append(quote);
+      if (c.mine || adminToken()) { const d = el('button', 'reply-act reply-del', 'Delete') as HTMLButtonElement; d.type = 'button'; d.dataset.del = String(c.id); foot.append(d); }
+      main.append(top, body, foot);
+      li.append(user, main);
+      return li;
+    }
+    function render() {
+      list.replaceChildren(...comments.map((c, i) => item(c, i + 1)));
+      $('replies-n').textContent = comments.length ? `(${comments.length})` : '';
+      $('reply-empty').hidden = comments.length > 0;
+    }
+    function renderLike() {
+      if (!likeBtn) return;
+      likeBtn.hidden = false;
+      likeBtn.classList.toggle('on', liked);
+      likeBtn.setAttribute('aria-pressed', String(liked));
+      likeBtn.querySelector('.lk-label')!.textContent = liked ? 'Liked' : 'Like';
+      const others = likes - (liked ? 1 : 0);
+      likeBtn.querySelector('.lk-sum')!.textContent = !likes ? '' : liked ? (others ? `You and ${others} other${others === 1 ? '' : 's'}` : 'You like this') : `${likes} like${likes === 1 ? '' : 's'}`;
+    }
+    function formMode() {
+      const owner = !!adminToken();
+      $('reply-form-av').replaceWith(Object.assign(avatar(f.name.value || '?', owner), { id: 'reply-form-av' }));
+      $('reply-name-field').hidden = owner;
+      $('reply-as').hidden = !owner;
+      $('reply-as').textContent = owner ? `Replying as ${OWNER} (author)` : '';
+      $('reply-hint').hidden = owner;
+    }
+
+    try { f.name.value = localStorage.getItem('guest-name') || ''; } catch {}
+    f.name.addEventListener('input', () => { if (!adminToken()) $('reply-form-av').replaceWith(Object.assign(avatar(f.name.value || '?', false), { id: 'reply-form-av' })); });
+    formMode();
+    document.addEventListener('adm:session', () => { formMode(); render(); });
+    window.addEventListener('storage', (e) => { if (!e.key || e.key === 'adm') { formMode(); render(); } });
+
+    call(`/posts/${encodeURIComponent(SLUG)}?g=${G}`).then((d) => {
+      comments = d.comments; likes = d.likes; liked = d.liked;
+      render(); renderLike(); box.hidden = false;
+      if (/^#comment-\d+$/.test(location.hash)) document.querySelector(location.hash)?.scrollIntoView();
+    }).catch(() => {});   // API unreachable: no replies section, no Like button
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      err.textContent = '';
+      const owner = !!adminToken(), name = f.name.value.trim(), body = f.body.value.trim();
+      if (!owner && !name) { err.textContent = 'Enter your name.'; f.name.focus(); return; }
+      if (!body) { err.textContent = 'Write something first.'; f.body.focus(); return; }
+      const btn = form.querySelector('button[type=submit]') as HTMLButtonElement;
+      btn.disabled = true;
+      try {
+        const d = await call(`/posts/${encodeURIComponent(SLUG)}/comments`, { guest: G, name: owner ? OWNER : name, body, website: f.website.value, t: Date.now() - shownAt });
+        if (!owner) try { localStorage.setItem('guest-name', name); } catch {}
+        comments.push(d.comment); render();
+        f.body.value = '';
+        const li = document.getElementById(`comment-${d.comment.id}`)!;
+        li.classList.add('reply-new'); li.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } catch (x) { err.textContent = (x as Error).message; }
+      finally { btn.disabled = false; }
+    });
+    list.addEventListener('click', async (e) => {
+      const b = (e.target as HTMLElement).closest('button'); if (!b) return;
+      if (b.dataset.at) {
+        const at = `@${b.dataset.at} `;
+        if (!f.body.value.startsWith(at)) f.body.value = at + f.body.value;
+        f.body.focus(); f.body.setSelectionRange(f.body.value.length, f.body.value.length);
+        form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      if (b.dataset.del) {
+        if (!confirm('Delete this reply?')) return;
+        b.disabled = true;
+        try { await call(`/posts/${encodeURIComponent(SLUG)}/comments/${b.dataset.del}/delete`, { guest: G }); comments = comments.filter((c) => String(c.id) !== b.dataset.del); render(); }
+        catch (x) { alert((x as Error).message); b.disabled = false; }
+      }
+    });
+    likeBtn?.addEventListener('click', async () => {
+      const want = !liked;
+      liked = want; likes += want ? 1 : -1; renderLike();   // show it at once; the answer corrects it
+      likeBtn.disabled = true;
+      try { const d = await call(`/posts/${encodeURIComponent(SLUG)}/like`, { guest: G, like: want }); likes = d.likes; liked = d.liked; }
+      catch (x) { liked = !want; likes += want ? -1 : 1; alert((x as Error).message); }
+      finally { likeBtn.disabled = false; renderLike(); }
+    });
+    // keep "5 minutes ago" current
+    setInterval(() => list.querySelectorAll('time').forEach((t) => { t.textContent = ago(Date.parse(t.getAttribute('datetime')!)); }), 60e3);
+  }
+</script>

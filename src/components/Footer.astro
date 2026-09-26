@@ -1,5 +1,5 @@
 ---
-import { SITE, CATEGORY_LABELS, STATIC_SITE, SOCIAL_LINKS, avatarUrl, profileAttrs, profileUrl } from '../config';
+import { SITE, CATEGORY_LABELS, STATIC_SITE, SOCIAL_LINKS, avatarUrl, profileAttrs, profileUrl, API_URL } from '../config';
 import { getCollection } from 'astro:content';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const href = (p: string) => (base + p).replace(/\/{2,}/g, '/') || '/';
@@ -72,6 +72,7 @@ const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'n
     <div class="wrap">
       {SITE.email && <a href={`mailto:${SITE.email}`}>Contact us</a>}
       <a href={href('/whoami')}>Who am I</a>
+      {API_URL && <a href={href('/privacy')}>Privacy</a>}
       <a href={href('/')}>Home</a>
       <a class="foot-rss" href={href('/rss.xml')} title="RSS" aria-label="RSS feed">
         <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><rect width="24" height="24" rx="4" fill="#f26522"/><circle cx="7" cy="17" r="2" fill="#fff"/><path d="M5 11a8 8 0 0 1 8 8M5 5a14 14 0 0 1 14 14" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round"/></svg>

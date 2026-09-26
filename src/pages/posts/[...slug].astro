@@ -3,9 +3,10 @@ import Base from '../../layouts/Base.astro';
 import ShareBar from '../../components/ShareBar.astro';
 import Crumbs from '../../components/Crumbs.astro';
 import PostCard from '../../components/PostCard.astro';
+import Comments from '../../components/Comments.astro';
 import { publishedPosts, readingMinutes, neighbours, related, tagHref } from '../../lib/posts';
 import { getCollection, render } from 'astro:content';
-import { CATEGORY_LABELS, SITE, STATIC_SITE, OWNER_PROFILE, avatarUrl, profileAttrs, profileUrl } from '../../config';
+import { CATEGORY_LABELS, SITE, STATIC_SITE, API_URL, OWNER_PROFILE, avatarUrl, profileAttrs, profileUrl } from '../../config';
 import { ownerStats } from '../../lib/owner';
 const owner = STATIC_SITE ? await ownerStats() : null;
 
@@ -80,7 +81,15 @@ const d = post.data.date.toLocaleDateString('en-US', { month: 'short', day: 'num
         <Content />
       </div>
     </div>
-    <div class="thread-share"><ShareBar url={postUrl} title={post.data.title} label="Share:" /></div>
+    <div class="thread-share">
+      {API_URL && (
+        <button class="post-like" id="post-like" type="button" aria-pressed="false" hidden>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+          <span class="lk-label">Like</span><span class="lk-sum"></span>
+        </button>
+      )}
+      <ShareBar url={postUrl} title={post.data.title} label="Share:" />
+    </div>
     <div class="author-card">
       {owner ? (
         <div class="ac-inner">
@@ -92,6 +101,8 @@ const d = post.data.date.toLocaleDateString('en-US', { month: 'short', day: 'num
       ) : <Fragment set:html={'<!--AUTHORCARD-->'} />}
     </div>
   </article>
+
+  {API_URL && <Comments slug={post.id} />}
 
   {(newer || older) && (
     <nav class="post-nav" aria-label="More posts">

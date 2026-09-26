@@ -34,6 +34,11 @@ export const shortUrl = (u: string) => u.replace(/^https?:\/\/(www\.)?/, '').rep
 // ---- Static-only build (GitHub Pages): built with PUBLIC_STATIC_SITE=true ----
 // There's no server behind it, so accounts, comments, likes and uploaded avatars are left out.
 export const STATIC_SITE = import.meta.env.PUBLIC_STATIC_SITE === 'true';
+// Guest comments, likes and visitor stats come from a small API (api/, a Cloudflare Worker). The Pages workflow sets
+// its address at build time once the CLOUDFLARE_API_TOKEN secret is added; without it those features stay hidden.
+// API_STATE: off (no secret) | ok | error (the deploy failed; /admin says so).
+export const API_URL = STATIC_SITE ? String(import.meta.env.PUBLIC_API_URL || '').replace(/\/+$/, '') : '';
+export const API_STATE = API_URL ? 'ok' : STATIC_SITE && import.meta.env.PUBLIC_API_STATE === 'error' ? 'error' : 'off';
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, '');
 // the server's per-user photo; on the static site the owner's photo (public/owner.jpg), anyone else the default silhouette
 // (?v= changes when a new photo is uploaded from /admin, so nobody keeps seeing the old one from their cache)
