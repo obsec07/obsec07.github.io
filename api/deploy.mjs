@@ -85,7 +85,7 @@ async function database(acc) {
 
 async function main() {
   if (!token) {
-    console.log('::notice::Comments, likes and visitor stats are off. Add the CLOUDFLARE_API_TOKEN secret to turn them on (README → Comments, likes & visitor stats).');
+    console.log('::notice::Comments, likes and visitor stats are off: no CLOUDFLARE_API_TOKEN secret. Add it under Settings → Secrets and variables → Actions → Repository secrets (README → Comments, likes & visitor stats).');
     output('url', ''); output('state', 'off');
     return;
   }
