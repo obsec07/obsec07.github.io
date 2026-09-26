@@ -46,7 +46,7 @@ async function call(method, path, { body, ip = '203.0.113.7', ua = IPHONE, cf = 
   const text = await res.text();
   return { status: res.status, headers: res.headers, data: text ? JSON.parse(text) : null };
 }
-const rows = (sql, ...a) => env.DB.sqlite.prepare(sql).all(...a);
+const rows = (sql, ...a) => env.DB.sqlite.prepare(sql).all(...a).map((r) => ({ ...r }));
 // a form token like GET /posts/:slug hands out, made `age` ms ago (signed with the key the Worker stored)
 async function form(slug, age = 5000) {
   if (!rows("SELECT name FROM sqlite_master WHERE name = 'meta'").length) await call('GET', '/health');
@@ -178,7 +178,7 @@ test('likes: one per guest, toggles, counted per post', async () => {
   assert.equal(g.data.liked, true);
   await comment('hello-world', { body: 'hi' });
   const c = await call('GET', '/counts?posts=hello-world,second-post,bad%20slug');
-  assert.deepEqual(c.data, { 'hello-world': { comments: 1, likes: 1 }, 'second-post': { comments: 0, likes: 0 } });
+  assert.deepEqual(c.data, { 'hello-world': { comments: 1, likes: 1, views: 0 }, 'second-post': { comments: 0, likes: 0, views: 0 } });
 });
 
 test('the owner (signed in to /admin) comments as the owner, without guest limits', async () => {
@@ -315,4 +315,58 @@ test('daily chart: days follow the admin\'s clock across a daylight-saving chang
   assert.deepEqual(two.map((r) => [r.b, r.views]), [[day(T), 1], [day(T + 864e5), 1]]);
   assert.equal((await call('GET', '/admin/stats?days=7&tz=1;DROP TABLE visits:0', { token: GOOD })).status, 200);   // junk is ignored
   assert.equal(rows('SELECT COUNT(*) n FROM visits')[0].n, 2);
+});
+
+test('post views: all-time, people only, once per visitor per 30 minutes, real posts only', async () => {
+  const view = (guest, opts = {}) => call('POST', '/hit', { ...opts, body: { path: '/posts/hello-world/', guest } });
+  await view(G1); await view(G1);                                   // same visitor again: one view
+  await view(G2, { ip: '198.51.100.40' });
+  await view(null, { ip: '198.51.100.41' });                         // no cookie: counted by IP
+  await view(G1, { ua: 'Googlebot/2.1' });                           // a bot: not counted
+  await call('POST', '/hit', { body: { path: '/posts/no-such-post/', guest: G2 } });
+  assert.deepEqual(rows('SELECT post, views FROM post_views'), [{ post: 'hello-world', views: 3 }]);
+  env.DB.sqlite.exec('UPDATE visits SET ts = ts - 31 * 60000');      // half an hour later: counts again
+  await view(G1);
+  assert.equal((await call('GET', '/posts/hello-world')).data.views, 4);
+  assert.deepEqual((await call('GET', '/counts?posts=hello-world,second-post')).data,
+    { 'hello-world': { comments: 0, likes: 0, views: 4 }, 'second-post': { comments: 0, likes: 0, views: 0 } });
+  env.DB.sqlite.exec('DELETE FROM visits');                          // visits expire; view counts don't
+  assert.equal((await call('GET', '/posts/hello-world')).data.views, 4);
+});
+
+test('upgrading a database from before view counts fills them from the visits it still has', async () => {
+  await call('GET', '/health');
+  const ins = env.DB.sqlite.prepare('INSERT INTO visits (ts, path, guest, bot) VALUES (?, ?, ?, ?)');
+  ins.run(Date.now(), '/posts/hello-world/', G1, 0); ins.run(Date.now(), '/posts/hello-world', G2, 0);
+  ins.run(Date.now(), '/posts/second-post/', G1, 0); ins.run(Date.now(), '/posts/second-post/', G1, 1);   // a bot
+  ins.run(Date.now(), '/ctf/', G1, 0);
+  env.DB.sqlite.exec("DROP TABLE post_views; UPDATE meta SET v = '1' WHERE k = 'schema'");
+  env = { ...env, DB: { ...env.DB } };                               // a new Worker instance on the same database
+  await call('GET', '/health');
+  assert.deepEqual(rows('SELECT post, views FROM post_views ORDER BY post'), [{ post: 'hello-world', views: 2 }, { post: 'second-post', views: 1 }]);
+  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '2');
+});
+
+test('admin: per-post stats, visits as CSV (formula-safe), online now', async () => {
+  await call('POST', '/hit', { body: { path: '/posts/hello-world/', guest: G1, title: '=HYPERLINK("http://evil","x")', ref: 'https://news.ycombinator.com/item?id=1' } });
+  await call('POST', '/hit', { ip: '198.51.100.50', body: { path: '/posts/second-post/', guest: G2 } });
+  await call('POST', '/posts/hello-world/like', { body: { guest: G2, like: true } });
+  await comment('hello-world', { body: 'hi' });
+  const p = (await call('GET', '/admin/posts?days=7', { token: GOOD })).data.posts;
+  assert.deepEqual(p.find((x) => x.post === 'hello-world'), { post: 'hello-world', views: 1, periodViews: 1, visitors: 1, likes: 1, replies: 1 });
+  assert.deepEqual(p.find((x) => x.post === 'second-post'), { post: 'second-post', views: 1, periodViews: 1, visitors: 1, likes: 0, replies: 0 });
+  assert.equal((await call('GET', '/admin/posts')).status, 401);
+
+  const req = new Request('https://api.example/admin/visits.csv?days=7', { headers: { authorization: `Bearer ${GOOD}`, origin: SITE } });
+  const res = await worker.fetch(req, env), csv = await res.text();
+  assert.match(res.headers.get('content-type'), /text\/csv/);
+  assert.match(res.headers.get('content-disposition'), /visits-7d\.csv/);
+  const lines = csv.replace(/^﻿/, '').trim().split('\r\n');
+  assert.equal(lines[0], 'time,path,title,referrer,guest,ip,country,region,city,timezone,asn,network,browser,os,device,language,screen,bot');
+  assert.equal(lines.length, 3);
+  assert.ok(lines[2].includes(`"'=HYPERLINK(""http://evil"",""x"")"`), lines[2]);   // not run as a formula
+  assert.ok(lines[2].includes('203.0.113.7') && lines[2].includes('Mumbai'));
+  assert.equal((await call('GET', '/admin/visits.csv')).status, 401);
+
+  assert.deepEqual((await call('GET', '/admin/live', { token: GOOD })).data, { live: 2 });
 });

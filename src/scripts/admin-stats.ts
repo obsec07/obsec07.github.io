@@ -64,7 +64,7 @@ export function initStats(o: Opts) {
   }
   // Each list is loaded by the newest request only: a tab switch, Refresh or Block while one is running used to
   // append the same rows twice. fresh loads bump the counter; "Show more" checks it didn't move meanwhile.
-  const seq = { stats: 0, visitors: 0, visits: 0, comments: 0 };
+  const seq = { stats: 0, visitors: 0, visits: 0, comments: 0, posts: 0 };
   // the admin's UTC offset for each stretch of [from, to] ("start:offset,…"), so a daylight-saving change mid-range
   // doesn't shift the days before it
   function tzSegments(from: number, to: number) {
@@ -93,11 +93,11 @@ export function initStats(o: Opts) {
     finally { if (my === seq.stats) body.classList.remove('st-loading'); }
   }
   function renderKpis(s: Row) {
-    const tile = (label: string, value: number, note = '') => h('div', { class: 'st-kpi' }, h('div', { class: 'st-kpi-label' }, label), h('div', { class: 'st-kpi-value' }, num(value)), note ? h('div', { class: 'st-kpi-note' }, note) : null);
+    const tile = (label: string, value: number, note = '', id = '') => h('div', { class: 'st-kpi' }, h('div', { class: 'st-kpi-label' }, label), h('div', { class: 'st-kpi-value', id: id || null }, num(value)), note ? h('div', { class: 'st-kpi-note' }, note) : null);
     const per = days === 1 ? 'last 24 hours' : `last ${days} days`;
     $('st-kpis').replaceChildren(
       tile('Visitors', s.visitors, per), tile('Page views', s.views, per),
-      tile('Online now', s.live, 'last 5 minutes'), tile('Replies', s.comments, 'from guests'), tile('Likes', s.likes, per),
+      tile('Online now', s.live, 'last 5 minutes', 'st-live'), tile('Replies', s.comments, 'from guests'), tile('Likes', s.likes, per),
     );
   }
 
@@ -204,6 +204,26 @@ export function initStats(o: Opts) {
     bars('st-devices', s.devices, (r) => [r.device || 'Unknown']);
     bars('st-browsers', s.browsers, (r) => [r.browser || 'Unknown']);
     bars('st-os', s.os, (r) => [r.os || 'Unknown']);
+  }
+
+  // ---------- your posts: all-time views, and this period's visitors, likes and replies ----------
+  async function loadPostStats() {
+    const my = ++seq.posts;
+    try {
+      const [{ posts }, t] = await Promise.all([api(`/admin/posts?days=${days}`), postTitles()]);
+      if (my !== seq.posts) return;
+      const list = posts.filter((p: Row) => t[p.post]);   // posts still on the site
+      const max = Math.max(1, ...list.map((p: Row) => p.views));
+      const per = days === 1 ? '24 hours' : `${days} days`;
+      $('st-posts').replaceChildren(list.length
+        ? h('ol', { class: 'st-bars' }, list.map((p: Row) => h('li', null,
+            h('div', { class: 'st-bar-top' },
+              h('span', { class: 'st-bar-label' }, pageLink(`${o.base}/posts/${p.post}/`, t[p.post]),
+                h('span', { class: 'st-sub' }, `${num(p.visitors)} visitor${p.visitors === 1 ? '' : 's'} in ${per} · ${num(p.likes)} like${p.likes === 1 ? '' : 's'} · ${num(p.replies)} repl${p.replies === 1 ? 'y' : 'ies'}`)),
+              h('span', { class: 'st-bar-n' }, num(p.views))),
+            h('div', { class: 'st-bar-track' }, h('span', { class: 'st-bar', style: `width:${Math.max(2, (p.views / max) * 100)}%` })))))
+        : h('p', { class: 'st-empty' }, 'No post views yet.'));
+    } catch (x) { if (my === seq.posts) $('st-posts').replaceChildren(h('p', { class: 'st-empty' }, (x as Error).message)); }
   }
 
   // ---------- visitors (one row per guest cookie) ----------
@@ -317,7 +337,7 @@ export function initStats(o: Opts) {
   }
 
   function refreshAll() {
-    if (!$('st-pane').hidden) { loadStats(); loadVisitors(); loadVisits(true); }
+    if (!$('st-pane').hidden) { loadStats(); loadPostStats(); loadVisitors(); loadVisits(true); }
     if (!$('cm-pane').hidden) loadComments(true);
   }
 
@@ -325,17 +345,55 @@ export function initStats(o: Opts) {
   document.querySelectorAll<HTMLButtonElement>('#st-range [data-days]').forEach((b) => b.addEventListener('click', () => {
     days = Number(b.dataset.days);
     document.querySelectorAll('#st-range [data-days]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
-    loadStats(); loadVisitors();
+    loadStats(); loadPostStats(); loadVisitors();
   }));
   $('st-refresh').addEventListener('click', refreshAll);
+  // the period's visits as a CSV file (the download needs the sign-in header, so it's fetched, then saved)
+  $('st-csv').addEventListener('click', async (e) => {
+    const b = e.currentTarget as HTMLButtonElement; b.disabled = true;
+    try {
+      const r = await fetch(`${o.api}/admin/visits.csv?days=${days}`, { cache: 'no-store', headers: { Authorization: `Bearer ${o.token()}` } });
+      if (!r.ok) throw new Error(r.status === 401 ? "The stats server didn't accept your sign-in. Log out and log in again." : `The stats server answered ${r.status}.`);
+      const url = URL.createObjectURL(await r.blob());
+      const a = h('a', { href: url, download: `visits-${days === 1 ? '24h' : `${days}d`}-${new Date().toISOString().slice(0, 10)}.csv` }) as HTMLAnchorElement;
+      document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 60e3);
+    } catch (x) { fail('st-err', x); }
+    finally { b.disabled = false; }
+  });
+  // "Online now" keeps itself current while you look at it
+  setInterval(async () => {
+    if ($('st-pane').hidden || document.visibilityState !== 'visible' || !document.getElementById('st-live')) return;
+    try { const { live } = await api('/admin/live'); const el = document.getElementById('st-live'); if (el) el.textContent = num(live); } catch {}
+  }, 30e3);
   $('st-visits-more').addEventListener('click', () => loadVisits());
   $('cm-more').addEventListener('click', () => loadComments());
   $('cm-refresh').addEventListener('click', () => loadComments(true));
+  // ---------- "Comments 3": replies from guests you haven't seen here yet (remembered on this device) ----------
+  const SEEN = 'adm-replies-seen';
+  const seen = () => { try { return Number(localStorage.getItem(SEEN)) || 0; } catch { return 0; } };
+  function setBadge(n: number) {
+    const tab = document.querySelector('.adm-tabs [data-tab="comments"]');
+    if (!tab) return;
+    tab.querySelector('.adm-badge')?.remove();
+    if (n > 0) tab.append(h('span', { class: 'adm-badge', title: `${n} new repl${n === 1 ? 'y' : 'ies'}` }, n >= 30 ? '30+' : String(n)));
+  }
+  async function badge() {
+    try {
+      const { comments } = await api('/admin/comments?limit=30');
+      setBadge($('cm-pane').hidden ? comments.filter((c: Row) => !c.owner && c.id > seen()).length : 0);
+    } catch {}
+  }
+  setInterval(() => { if (document.visibilityState === 'visible' && o.token()) badge(); }, 120e3);
+  const markSeen = async () => {
+    try { const { comments } = await api('/admin/comments?limit=1'); if (comments[0]) localStorage.setItem(SEEN, String(comments[0].id)); } catch {}
+    setBadge(0);
+  };
   return {
     // called when a tab opens
     show(tab: string) {
-      if (tab === 'stats') { loadStats(); loadVisitors(); loadVisits(true); }
-      if (tab === 'comments') loadComments(true);
+      if (tab === 'stats') { loadStats(); loadPostStats(); loadVisitors(); loadVisits(true); }
+      if (tab === 'comments') { loadComments(true); markSeen(); }
     },
+    badge,
   };
 }

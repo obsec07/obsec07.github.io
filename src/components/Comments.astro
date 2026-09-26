@@ -25,7 +25,7 @@ const { slug } = Astro.props;
       <div class="reply-trap" aria-hidden="true"><label>Leave this empty <input type="text" name="leave_empty" tabindex="-1" autocomplete="off" /></label></div>
       <div class="reply-actions">
         <span class="reply-err" id="reply-err" role="alert"></span>
-        <span class="reply-hint" id="reply-hint">No account needed. Your name and reply are public.</span>
+        <span class="reply-hint" id="reply-hint">No account needed. Your name and reply are public. <code>`code`</code> and <code>```</code> blocks work.</span>
         <button class="reply-send" type="submit">
           <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>
           Post reply
@@ -71,6 +71,27 @@ const { slug } = Astro.props;
       return data;
     }
 
+    // A reply's text, with `inline code`, ```code blocks``` and http(s) links (nofollow). Built from text nodes, so
+    // anything else, HTML included, shows exactly as typed.
+    function formatted(text: string) {
+      const out = document.createDocumentFragment();
+      const parts = text.split(/```[^\n`]*\n?([\s\S]*?)```/);
+      parts.forEach((part, i) => {
+        if (i % 2) { const pre = el('pre', 'reply-pre'); pre.append(el('code', '', part.replace(/\n$/, ''))); out.append(pre); return; }
+        if (i > 0) part = part.replace(/^\n/, '');                       // the line break after a block is the block's own
+        if (i < parts.length - 1) part = part.replace(/\n$/, '');
+        const re = /`([^`\n]+)`|(https?:\/\/[^\s<>"'`]*[^\s<>"'`.,;:!?)\]}])/g;
+        let last = 0, m;
+        while ((m = re.exec(part))) {
+          out.append(part.slice(last, m.index));
+          if (m[1] !== undefined) out.append(el('code', 'reply-code', m[1]));
+          else { const a = el('a', '', m[2]) as HTMLAnchorElement; a.href = m[2]; a.rel = 'nofollow ugc noopener noreferrer'; a.target = '_blank'; out.append(a); }
+          last = re.lastIndex;
+        }
+        out.append(part.slice(last));
+      });
+      return out;
+    }
     const rtf = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
     function ago(ts: number) {
       const s = (ts - Date.now()) / 1000, a = Math.abs(s);
@@ -102,7 +123,7 @@ const { slug } = Astro.props;
       const t = el('time', '', ago(c.ts)); t.setAttribute('datetime', new Date(c.ts).toISOString()); t.title = new Date(c.ts).toLocaleString();
       const num = el('a', 'reply-num', `#${n}`) as HTMLAnchorElement; num.href = `#comment-${c.id}`;
       top.append(t, num);
-      const body = el('div', 'reply-body', c.body);
+      const body = el('div', 'reply-body'); body.append(formatted(c.body));
       const foot = el('div', 'reply-foot');
       const quote = el('button', 'reply-act', 'Reply') as HTMLButtonElement; quote.type = 'button'; quote.dataset.at = c.owner ? OWNER : c.name;
       foot.append(quote);
@@ -145,6 +166,11 @@ const { slug } = Astro.props;
 
     const load = () => call(`/posts/${encodeURIComponent(SLUG)}?g=${G}`).then((d) => {
       comments = d.comments; total = d.total ?? d.comments.length; likes = d.likes; liked = d.liked; form = d.form || ''; formAt = Date.now();
+      const v = document.getElementById('post-views');   // the view count in the post's header
+      if (v && typeof d.views === 'number' && d.views > 0) {
+        v.querySelector('.n')!.textContent = `${d.views.toLocaleString('en-US')} view${d.views === 1 ? '' : 's'}`;
+        document.querySelectorAll<HTMLElement>('.post-views').forEach((e) => { e.hidden = false; });
+      }
       return d;
     });
     load().then(() => {
