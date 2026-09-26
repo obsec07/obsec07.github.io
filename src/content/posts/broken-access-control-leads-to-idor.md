@@ -1,11 +1,12 @@
 ---
-title: Broken Access Control leads to IDOR
+title: Cross Users mail changing(IDOR)
 date: '2026-09-23'
 category: infosec
 description: ''
 tags:
   - web
 draft: false
+updated: '2026-09-26'
 ---
 
 # Following an Email Change Toward Account Takeover
