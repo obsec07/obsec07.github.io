@@ -23,6 +23,7 @@ const pageUrl = (n: number) => href(n === 1 ? `/${category}/` : `/${category}/${
 const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 const av = avatarUrl(SITE.handle);
 // every tag used in this blog, for the Filters menu
+// with the comments API the stats column shows Replies + Views like XenForo (reading time stays under the title)
 const blogTags = [...new Set((await publishedPosts()).filter((p) => p.data.category === category).flatMap((p) => p.data.tags))].sort((a, b) => a.localeCompare(b));
 ---
 <Base title={page.currentPage > 1 ? `${label} · Page ${page.currentPage}` : label} shownPosts={page.data.map((p) => p.id)}>
@@ -62,7 +63,9 @@ const blogTags = [...new Set((await publishedPosts()).filter((p) => p.data.categ
           </div>
           <dl class="tl-stats">
             {STATIC_SITE
-              ? <Fragment><div><dt>Replies:</dt><dd class="tl-rep">0</dd></div><div><dt>Reading:</dt><dd>{readingMinutes(p.body)} min</dd></div></Fragment>
+              ? (API_URL
+                ? <Fragment><div><dt>Replies:</dt><dd class="tl-rep">0</dd></div><div><dt>Views:</dt><dd class="tl-views">–</dd></div></Fragment>
+                : <Fragment><div><dt>Replies:</dt><dd class="tl-rep">0</dd></div><div><dt>Reading:</dt><dd>{readingMinutes(p.body)} min</dd></div></Fragment>)
               : <Fragment set:html={`<!--THSTATS:${p.id}-->`} />}
           </dl>
           <div class="tl-last">
@@ -85,7 +88,9 @@ const blogTags = [...new Set((await publishedPosts()).filter((p) => p.data.categ
     <div class="tl-row">
       <img class="tl-av" alt="" width="36" height="36" />
       <div class="tl-main"><a class="tl-title"></a><div class="tl-sub"><span class="u"></span> · <span class="d"></span><span class="tl-sub-read"></span></div></div>
-      <dl class="tl-stats"><div><dt>Replies:</dt><dd class="tl-rep">0</dd></div><div><dt>Reading:</dt><dd class="m"></dd></div></dl>
+      {API_URL
+        ? <dl class="tl-stats"><div><dt>Replies:</dt><dd class="tl-rep">0</dd></div><div><dt>Views:</dt><dd class="tl-views">–</dd></div></dl>
+        : <dl class="tl-stats"><div><dt>Replies:</dt><dd class="tl-rep">0</dd></div><div><dt>Reading:</dt><dd class="m"></dd></div></dl>}
       <div class="tl-last"><div class="tl-last-meta"><div class="tl-last-d"></div><div class="tl-last-u"></div></div><img class="tl-av-sm" alt="" width="26" height="26" /></div>
     </div>
   </template>
@@ -107,7 +112,13 @@ const blogTags = [...new Set((await publishedPosts()).filter((p) => p.data.categ
         if (!box.dataset.api) return;
         var rowsNow = rows.querySelectorAll('.tl-row[data-post]'), want = [];
         rowsNow.forEach(function (r) { if (!(r.dataset.post in counts)) want.push(r.dataset.post); });
-        function show() { rowsNow.forEach(function (r) { var c = counts[r.dataset.post], d = r.querySelector('.tl-rep'); if (c && d) d.textContent = String(c.comments); }); }
+        function show() {
+          rowsNow.forEach(function (r) {
+            var c = counts[r.dataset.post], d = r.querySelector('.tl-rep'), v = r.querySelector('.tl-views');
+            if (c && d) d.textContent = String(c.comments);
+            if (c && v) v.textContent = Number(c.views || 0).toLocaleString('en-US');
+          });
+        }
         if (!want.length) return show();
         var asks = [];   // the API answers 60 posts at a time; a filtered list can hold more
         for (var i = 0; i < want.length; i += 50) {
@@ -163,7 +174,7 @@ const blogTags = [...new Set((await publishedPosts()).filter((p) => p.data.categ
             r.querySelector('.u').textContent = r.querySelector('.tl-last-u').textContent = box.dataset.user;
             r.querySelector('.d').textContent = r.querySelector('.tl-last-d').textContent = fmt(p.date);
             r.querySelector('.tl-sub-read').textContent = ' · ' + p.minutes + ' min read';
-            r.querySelector('.m').textContent = p.minutes + ' min';
+            var m = r.querySelector('.m'); if (m) m.textContent = p.minutes + ' min';
             rows.appendChild(r);
           });
           fillCounts();

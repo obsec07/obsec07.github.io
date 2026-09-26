@@ -69,7 +69,19 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
           <div class="frow"><div class="lab">Description</div><div class="fld"><input type="text" name="description" maxlength="300" /><div class="hint">One-liner shown on the post lists.</div></div></div>
           <div class="frow"><div class="lab">Tags</div><div class="fld"><input type="text" name="tags" placeholder="htb, web, jwt" /></div></div>
           <div class="frow"><div class="lab">Status</div><div class="fld"><select name="status"><option value="published">Published</option><option value="draft">Draft (hidden)</option></select></div></div>
-          <div class="frow"><div class="lab">Body</div><div class="fld"><textarea name="body" rows="20" class="adm-body" placeholder="Markdown…"></textarea></div></div>
+          <div class="frow"><div class="lab">Body</div><div class="fld">
+            <div class="acct-note adm-draft-note" id="adm-draft-note" hidden>
+              <span id="adm-draft-when"></span>
+              <span class="adm-acts"><button class="save-btn" type="button" id="adm-draft-restore">Restore</button><button class="save-btn" type="button" id="adm-draft-discard">Discard</button></span>
+            </div>
+            <div class="adm-body-tools">
+              <label class="save-btn adm-file">Insert image<input type="file" id="adm-img" accept="image/*" multiple /></label>
+              <span class="hint" id="adm-img-hint">JPG, PNG, WebP or GIF. Big pictures are shrunk to 1600px wide. They upload when you press Save.</span>
+            </div>
+            <ul class="adm-imgs" id="adm-imgs" hidden></ul>
+            <textarea name="body" rows="20" class="adm-body" placeholder="Markdown…"></textarea>
+            <div class="hint">Your text is kept on this device as you type, until you save.</div>
+          </div></div>
           <div class="acct-actions"><span class="adm-err" id="adm-save-err" role="alert"></span><button class="save-btn" type="button" id="adm-cancel">Cancel</button> <button class="save-btn" type="submit" id="adm-save">Save</button></div>
         </form>
         </div>
@@ -120,7 +132,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
                   <button type="button" data-days="30" aria-pressed="false">30 days</button>
                   <button type="button" data-days="90" aria-pressed="false">90 days</button>
                 </div>
-                <button type="button" class="st-btn" id="st-refresh">Refresh</button>
+                <span class="st-tools"><button type="button" class="st-btn" id="st-csv" title="The visits of this period, for Excel / Google Sheets">Download CSV</button><button type="button" class="st-btn" id="st-refresh">Refresh</button></span>
               </div>
               <div class="acct-note err" id="st-err" role="alert" hidden></div>
               <div id="st-body">
@@ -132,6 +144,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
                   <details class="st-tablebox"><summary>Show as a table</summary><table class="st-table" id="st-table"></table></details>
                   <p class="st-note" id="st-bots"></p>
                 </div>
+                <div class="st-card"><h3>Your posts <span class="st-unit">views, all time</span></h3><div id="st-posts"></div></div>
                 <div class="st-grid">
                   <div class="st-card"><h3>Top pages <span class="st-unit">views</span></h3><div id="st-pages"></div></div>
                   <div class="st-card"><h3>Came from <span class="st-unit">visitors</span></h3><div id="st-refs"></div></div>
@@ -243,8 +256,8 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       return { token, user };
     }
 
-    async function gh(path, opts = {}) {
-      const r = await fetch(API + path, { ...opts, cache: 'no-store', headers: { Authorization: `Bearer ${session.token}`, Accept: 'application/vnd.github+json', ...(opts.body ? { 'Content-Type': 'application/json' } : {}) } });
+    async function gh(path, opts = {}, base = API) {
+      const r = await fetch(base + path, { ...opts, cache: 'no-store', headers: { Authorization: `Bearer ${session.token}`, Accept: 'application/vnd.github+json', ...(opts.body ? { 'Content-Type': 'application/json' } : {}) } });
       if (r.status === 404 && !opts.method) return null;
       if (r.ok) return r.json();
       const m = await ghMessage(r);
@@ -274,12 +287,102 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       posts.sort((a, b) => isoDate(b.data.date).localeCompare(isoDate(a.data.date)));
       $('adm-count').textContent = `Posts (${posts.length})`;
       $('adm-list').innerHTML = posts.length ? posts.map((p, i) => `
-        <div class="adm-row">
+        <div class="adm-row" data-slug="${esc(p.slug)}">
           <div class="adm-main"><div class="tl-title">${esc(p.data.title || p.slug)} ${p.data.draft ? '<span class="adm-draft">draft</span>' : ''}</div>
-            <div class="tl-sub">${esc(p.data.category)} · ${esc(isoDate(p.data.date))} · /posts/${esc(p.slug)}</div></div>
+            <div class="tl-sub">${esc(p.data.category)} · ${esc(isoDate(p.data.date))} · /posts/${esc(p.slug)}<span class="adm-stats"></span></div></div>
           <div class="adm-acts"><button class="save-btn" type="button" data-edit="${i}">Edit</button><button class="save-btn adm-del" type="button" data-del="${i}">Delete</button></div>
         </div>`).join('') : '<div class="tl-empty">No posts yet. Click “+ New post”.</div>';
+      postStats();
     }
+    // views, replies and likes next to each post (from the comments API, when it's on)
+    async function postStats() {
+      if (!root.dataset.api || !posts.length) return;
+      const slugs = posts.filter((p) => !p.data.draft).map((p) => p.slug), counts = {};
+      try {
+        for (let i = 0; i < slugs.length; i += 50) Object.assign(counts, await (await fetch(`${root.dataset.api}/counts?posts=${slugs.slice(i, i + 50).map(encodeURIComponent).join(',')}`, { cache: 'no-store' })).json());
+      } catch { return; }
+      const n = (v, one, many) => `${Number(v || 0).toLocaleString('en-US')} ${v === 1 ? one : many}`;
+      document.querySelectorAll('#adm-list .adm-row[data-slug]').forEach((row) => {
+        const c = counts[row.dataset.slug]; if (!c) return;
+        row.querySelector('.adm-stats').textContent = ` · ${n(c.views, 'view', 'views')} · ${n(c.comments, 'reply', 'replies')} · ${n(c.likes, 'like', 'likes')}`;
+      });
+    }
+
+    // ---- pictures in posts: picked in the editor, shrunk here, committed together with the post on Save ----
+    const REPO_API = `https://api.github.com/repos/${REPO}/`;
+    const pending = new Map();   // repo path (public/uploads/…) -> { b64, url, name }
+    const pad2 = (n) => String(n).padStart(2, '0');
+    const sitePath = (repoPath) => sitePage(repoPath.replace(/^public/, ''));
+    async function prepareImage(file) {
+      if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) throw new Error(`${file.name}: pick a JPG, PNG, WebP or GIF.`);
+      if (file.size > 25e6) throw new Error(`${file.name} is too big (25 MB max).`);
+      let blob = file, ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }[file.type];
+      if (file.type === 'image/gif') { if (file.size > 5e6) throw new Error(`${file.name}: GIFs can be at most 5 MB.`); }   // animated: kept as is
+      else {
+        let img;
+        try { img = await createImageBitmap(file); } catch { throw new Error(`Couldn't read ${file.name}.`); }
+        const scale = Math.min(1, 1600 / img.width);
+        if (scale < 1 || file.size > 800e3) {   // shrink: WebP (JPEG where the browser can't make WebP)
+          const c = document.createElement('canvas'); c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          blob = await new Promise((r) => c.toBlob(r, 'image/webp', 0.86));
+          if (!blob || blob.type !== 'image/webp') { const g = c.getContext('2d'); g.globalCompositeOperation = 'destination-over'; g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', 0.88)); }
+          ext = blob.type === 'image/webp' ? 'webp' : 'jpg';
+        }
+      }
+      const d = new Date(), name = slugify(file.name.replace(/\.[^.]+$/, '')).slice(0, 40) || 'image';
+      const path = `public/uploads/${d.getFullYear()}/${pad2(d.getMonth() + 1)}/${name}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
+      return { path, b64: toB64(new Uint8Array(await blob.arrayBuffer())), url: URL.createObjectURL(blob), name, size: blob.size };
+    }
+    function insertAtCursor(ta, text) {
+      const a = ta.selectionStart ?? ta.value.length, b = ta.selectionEnd ?? a;
+      ta.value = ta.value.slice(0, a) + text + ta.value.slice(b);
+      ta.selectionStart = ta.selectionEnd = a + text.length;
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    function showPending() {
+      const list = $('adm-imgs');
+      list.innerHTML = [...pending.entries()].map(([p, im]) => `<li><img src="${esc(im.url)}" alt="" /><span>${esc(sitePath(p))}<br /><small>${Math.max(1, Math.round(im.size / 1024))} KB · uploads on Save</small></span><button class="save-btn" type="button" data-rm="${esc(p)}">Remove</button></li>`).join('');
+      list.hidden = !pending.size;
+    }
+    function forgetPending() { pending.forEach((im) => URL.revokeObjectURL(im.url)); pending.clear(); showPending(); }
+    // several files in one commit (the post and its pictures), so the site deploys once
+    async function commitFiles(files, message) {
+      for (let attempt = 0; ; attempt++) {
+        const head = (await gh(`git/ref/heads/${BRANCH}`, {}, REPO_API)).object.sha;
+        const base = (await gh(`git/commits/${head}`, {}, REPO_API)).tree.sha;
+        const tree = [];
+        for (const f of files) tree.push({ path: f.path, mode: '100644', type: 'blob', sha: (await gh('git/blobs', { method: 'POST', body: JSON.stringify({ content: f.content, encoding: 'base64' }) }, REPO_API)).sha });
+        const t = await gh('git/trees', { method: 'POST', body: JSON.stringify({ base_tree: base, tree }) }, REPO_API);
+        const c = await gh('git/commits', { method: 'POST', body: JSON.stringify({ message, tree: t.sha, parents: [head] }) }, REPO_API);
+        try { await gh(`git/refs/heads/${BRANCH}`, { method: 'PATCH', body: JSON.stringify({ sha: c.sha }) }, REPO_API); return c.sha; }
+        catch (x) { if (attempt >= 1 || x.shown) throw x; }   // someone saved in between: redo it on top of theirs once
+      }
+    }
+
+    // ---- drafts: what you type is kept on this device until it's saved ----
+    const draftKey = (slug) => `adm-draft:${slug || 'new'}`;
+    const FIELDS = ['title', 'slug', 'category', 'date', 'description', 'tags', 'status', 'body'];
+    const fieldValues = () => Object.fromEntries(FIELDS.map((k) => [k, $('adm-editor').elements[k].value]));
+    let opened = null, draftTimer = 0;
+    function keepDraft() {
+      if ($('adm-editor').hidden) return;
+      const now = fieldValues(), key = draftKey(editing && editing.slug);
+      try {
+        if (JSON.stringify(now) === JSON.stringify(opened)) localStorage.removeItem(key);   // back to what's saved
+        else localStorage.setItem(key, JSON.stringify({ ...now, at: Date.now() }));
+      } catch {}
+    }
+    const dropDraft = (slug) => { try { localStorage.removeItem(draftKey(slug)); } catch {} };
+    function offerDraft() {
+      let d = null;
+      try { d = JSON.parse(localStorage.getItem(draftKey(editing && editing.slug)) || 'null'); } catch {}
+      const box = $('adm-draft-note');
+      if (!d || FIELDS.every((k) => d[k] === opened[k])) { box.hidden = true; return; }
+      $('adm-draft-when').textContent = `Unsaved changes from ${new Date(d.at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })} on this device.`;
+      box.hidden = false; box.dataset.draft = JSON.stringify(d);
+    }
+    const isDirty = () => !$('adm-editor').hidden && opened && JSON.stringify(fieldValues()) !== JSON.stringify(opened);
 
     function openEditor(p) {
       editing = p;
@@ -293,10 +396,12 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       f.elements.tags.value = p ? (p.data.tags || []).join(', ') : '';
       f.elements.status.value = p && p.data.draft ? 'draft' : 'published';
       f.elements.body.value = p ? p.body : '';
+      opened = fieldValues(); forgetPending(); $('adm-img-hint').classList.remove('adm-ferr');
       $('adm-list-box').hidden = true; f.hidden = false; f.elements.title.focus({ preventScroll: true });
+      offerDraft();
       $('adm-app').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
-    function closeEditor() { editing = null; $('adm-save-err').textContent = ''; $('adm-editor').hidden = true; $('adm-list-box').hidden = false; $('adm-app').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+    function closeEditor() { editing = null; opened = null; forgetPending(); $('adm-draft-note').hidden = true; $('adm-save-err').textContent = ''; $('adm-editor').hidden = true; $('adm-list-box').hidden = false; $('adm-app').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 
     async function save(e) {
       e.preventDefault();
@@ -310,12 +415,18 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       const btn = $('adm-save'), err = $('adm-save-err');
       err.textContent = ''; btn.disabled = true; btn.textContent = 'Saving…';
       try {
-        const res = await gh(`${DIR}/${slug}.md`, { method: 'PUT', body: JSON.stringify({
-          message: `${editing ? 'Update' : 'Add'} post: ${title}`, branch: BRANCH,
-          content: toB64(enc.encode(serialize(data, v('body')))), ...(editing ? { sha: editing.sha } : {}) }) });
+        const message = `${editing ? 'Update' : 'Add'} post: ${title}`, content = toB64(enc.encode(serialize(data, v('body'))));
+        const pics = [...pending.entries()].filter(([p]) => v('body').includes(sitePath(p)));   // pictures still in the text
+        let sha;
+        if (pics.length) sha = await commitFiles([{ path: `${DIR}/${slug}.md`, content }, ...pics.map(([p, im]) => ({ path: p, content: im.b64 }))], message);
+        else {
+          const res = await gh(`${DIR}/${slug}.md`, { method: 'PUT', body: JSON.stringify({ message, branch: BRANCH, content, ...(editing ? { sha: editing.sha } : {}) }) });
+          sha = res && res.commit && res.commit.sha;
+        }
         gone.delete(`${DIR}/${slug}.md`);
-        note(`Saved “${title}”.`);
-        followDeploy(res && res.commit && res.commit.sha, `“${title}”`, { slug, published: !data.draft });
+        dropDraft(editing ? editing.slug : ''); dropDraft(slug);
+        note(`Saved “${title}”${pics.length ? ` with ${pics.length} picture${pics.length === 1 ? '' : 's'}` : ''}.`);
+        followDeploy(sha, `“${title}”`, { slug, published: !data.draft, pages: pics.map(([p]) => sitePath(p)) });
         closeEditor(); await loadPosts();
       } catch (x) { if (!x.shown) { err.textContent = x.message; note(x.message, 'err'); } }
       finally { btn.disabled = false; btn.textContent = 'Save'; }
@@ -325,7 +436,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       if (!confirm(`Delete “${p.data.title || p.slug}”? It will disappear from the site.`)) return;
       try {
         const res = await gh(p.path, { method: 'DELETE', body: JSON.stringify({ message: `Delete post: ${p.data.title || p.slug}`, sha: p.sha, branch: BRANCH }) });
-        gone.add(p.path);
+        gone.add(p.path); dropDraft(p.slug);
         note(`Deleted “${p.data.title || p.slug}”.`);
         followDeploy(res && res.commit && res.commit.sha, `the delete of “${p.data.title || p.slug}”`, { slug: p.slug });
         await loadPosts();
@@ -517,6 +628,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       showTab(location.hash.slice(1));
       if (wantNew) openEditor(null);
       loadSettings().catch((x) => { if (!x.shown) note(`Couldn't load the settings: ${x.message}`, 'err'); });
+      if (stats) stats.badge();   // "Comments 3": replies you haven't seen yet
       try { await loadPosts(); } catch (x) { if (!x.shown) note(x.message, 'err'); }
     }
     // back to the login form; `why` explains it there (the app, and its note, are hidden now)
@@ -561,6 +673,40 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       } catch (x) { $('adm-photo-hint').textContent = x.message; }
     });
     $('adm-cancel').addEventListener('click', closeEditor);
+    $('adm-editor').addEventListener('input', () => { clearTimeout(draftTimer); draftTimer = setTimeout(keepDraft, 500); });
+    $('adm-editor').addEventListener('change', keepDraft);
+    $('adm-draft-restore').addEventListener('click', () => {
+      const d = JSON.parse($('adm-draft-note').dataset.draft || '{}'), f = $('adm-editor');
+      FIELDS.forEach((k) => { if (typeof d[k] === 'string' && !(k === 'slug' && editing)) f.elements[k].value = d[k]; });
+      $('adm-draft-note').hidden = true;
+    });
+    $('adm-draft-discard').addEventListener('click', () => { dropDraft(editing && editing.slug); $('adm-draft-note').hidden = true; });
+    window.addEventListener('beforeunload', (e) => { if (isDirty()) { keepDraft(); e.preventDefault(); e.returnValue = ''; } });
+    $('adm-img').addEventListener('change', async (e) => {
+      const files = [...(e.target.files || [])]; e.target.value = '';
+      const hint = $('adm-img-hint'), ta = $('adm-editor').elements.body;
+      hint.classList.remove('adm-ferr');
+      for (const file of files) {
+        try {
+          hint.textContent = `Preparing ${file.name}…`;
+          const im = await prepareImage(file);
+          pending.set(im.path, im);
+          // its own paragraph (right under a list item it would become part of the list)
+          const before = ta.value.slice(0, ta.selectionStart), lead = !before ? '' : before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n';
+          insertAtCursor(ta, `${lead}![${im.name.replace(/-/g, ' ')}](${sitePath(im.path)})\n\n`);
+        } catch (x) { hint.textContent = x.message; hint.classList.add('adm-ferr'); showPending(); return; }
+      }
+      hint.textContent = 'JPG, PNG, WebP or GIF. Big pictures are shrunk to 1600px wide. They upload when you press Save.';
+      showPending();
+    });
+    $('adm-imgs').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-rm]'); if (!b) return;
+      const p = b.dataset.rm, im = pending.get(p), ta = $('adm-editor').elements.body;
+      if (im) URL.revokeObjectURL(im.url);
+      pending.delete(p);
+      ta.value = ta.value.split('\n').filter((line) => !line.includes(sitePath(p))).join('\n');   // and its line in the text
+      keepDraft(); showPending();
+    });
     $('adm-editor').addEventListener('submit', save);
     $('adm-list').addEventListener('click', (e) => {
       const t = e.target.closest('button'); if (!t) return;

@@ -89,18 +89,23 @@ a log-out button.
 change on the token. Never paste the token anywhere else.
 
 `/admin` has five tabs:
-- **Posts**: write, edit and delete posts.
+- **Posts**: write, edit and delete posts. **Insert image** adds screenshots: big ones are shrunk to 1600px
+  wide (WebP) in the browser and saved under `public/uploads/` in the same commit as the post, so the
+  site deploys once. What you type is kept on the device until you save (reopen the post to restore it).
+  With the comments server on, each post shows its views, replies and likes.
 - **Profile**: your username (logo, posts, hover card, `/members/<name>/`), photo (cropped to 320×320),
   title, about text, member-since date, contact email, and links. The links cover GitHub, Medium,
   Instagram, LinkedIn, YouTube, HackerOne, Bugcrowd, TryHackMe, Hack The Box and a website; empty
   ones are hidden.
 - **Site**: site name, description, a home-page announcement, the name and description of each blog,
   and the Who Am I text (Markdown; `{handle}` becomes your username).
-- **Analytics**: visitors and page views over 24 hours / 7 / 30 / 90 days, who's online, top pages, the
-  sites people came from, countries, cities, devices, browsers and operating systems. Below that, every
+- **Analytics**: visitors and page views over 24 hours / 7 / 30 / 90 days, who's online (updates itself),
+  your posts by all-time views (with the period's visitors, likes and replies), top pages, the sites
+  people came from, countries, cities, devices, browsers and operating systems. **Download CSV** saves
+  the period's visits for Excel / Google Sheets. Below that, every
   visitor (one per guest cookie) with their IP address, location, network, device and what they read, and
   the raw log of recent visits. You can block an IP from there.
-- **Comments**: every guest reply with its IP address and location. Delete replies, block an IP (and
+- **Comments**: every guest reply with its IP address and location. The tab shows how many are new. Delete replies, block an IP (and
   delete everything it posted), and see and lift blocks.
 
 Analytics and Comments need the comments server; until it's set up they show the setup steps.
@@ -153,7 +158,10 @@ How it works:
   size, language and the site they came from. Bots and crawlers are counted separately; your own visits
   while signed in to `/admin` aren't counted. Visits are deleted after 90 days, and so are the IP address
   and location stored with replies and the IP address stored with likes (used for the spam limits).
-- **Replies** are plain text with the guest's chosen name and a letter avatar. Spam protection: a hidden
+- **Views:** each post counts its views (people only, once per visitor per 30 minutes; kept for good,
+  unlike the visit log) and shows them in its header and on the blog lists (Replies / Views).
+- **Replies** are plain text with the guest's chosen name and a letter avatar; `` `code` ``, ```` ``` ````
+  code blocks and links (nofollow) are formatted. Spam protection: a hidden
   field bots fill in, a signed form token from the page that must be at least 3 seconds old (so scripts
   can't post without loading the page and waiting), at most 3 replies per 2 minutes and 20 a day per IP,
   at most 3 links, no duplicates, no replies to posts that don't exist, and IP blocks from `/admin`.
