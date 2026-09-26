@@ -15,3 +15,7 @@ admin/app.db
 # scratch / session artifacts
 *.jar
 *.tmp
+
+# comments/stats API: local wrangler state and the config deploy.mjs writes
+api/.wrangler/
+api/wrangler.deploy.json

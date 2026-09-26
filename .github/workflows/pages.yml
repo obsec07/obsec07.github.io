@@ -1,7 +1,8 @@
-# Publishes the read-only static blog to GitHub Pages on every push to main.
+# Publishes the static blog to GitHub Pages on every push to main.
 # One-time setup: repo Settings -> Pages -> Build and deployment -> Source: "GitHub Actions"
 # (without it the deploy step fails with "Ensure GitHub Pages has been enabled").
-# Pages only serves files, so accounts, comments, likes and the admin panel stay on the Node deployment (Render/Docker).
+# Pages only serves files, so guest replies, likes and visitor stats run on a small Cloudflare Worker (api/), deployed by
+# the `api` job below once the CLOUDFLARE_API_TOKEN secret is added (README -> Comments, likes & visitor stats).
 name: Deploy to GitHub Pages
 
 on:
@@ -19,7 +20,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # the comments / likes / visitor-stats API: deployed only when its code or settings changed; without the secret this
+  # just says so and the site builds without those features. Never blocks the site: a failure keeps the running version.
+  api:
+    runs-on: ubuntu-latest
+    outputs:
+      url: ${{ steps.api.outputs.url }}
+      state: ${{ steps.api.outputs.state }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - id: pages
+        uses: actions/configure-pages@v5
+      - id: api
+        name: Comments & stats API
+        continue-on-error: true
+        run: node api/deploy.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SITE_URL: ${{ steps.pages.outputs.base_url }}
+
   build:
+    needs: api
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -40,12 +66,16 @@ jobs:
           ADMIN_USERNAME: ${{ vars.ADMIN_USERNAME }}
           ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
           ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+          # where the site's pages find the comments API (empty: replies, likes and stats stay hidden)
+          PUBLIC_API_URL: ${{ needs.api.outputs.url }}
+          PUBLIC_API_STATE: ${{ needs.api.outputs.state }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
 
   deploy:
     needs: build
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
