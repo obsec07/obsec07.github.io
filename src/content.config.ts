@@ -14,6 +14,9 @@ const posts = defineCollection({
     description: z.string().default(''),
     tags: z.array(z.string()).default([]),
     draft: z.boolean().default(false),
+    publishAt: z.coerce.date().optional(),   // scheduled: hidden until then (an hourly job in pages.yml publishes it)
+    pinned: z.boolean().default(false),      // sticky: first on its blog's list
+    updated: z.coerce.date().optional(),     // "Last edited", set by /admin when a published post changes
   }),
 });
 

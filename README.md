@@ -31,7 +31,18 @@ tags: [htb, web, jwt]
 Your writeup in markdown. Code blocks are syntax-highlighted.
 ```
 It appears on the homepage, its category page (`/ctf`), and any `#tag` pages. Set `draft: true` to hide a
-work-in-progress.
+work-in-progress. Optional:
+- `pinned: true` keeps the post at the top of its blog, with a pin (a sticky thread).
+- `publishAt: 2026-10-01T09:00:00+05:30` schedules it. It stays off the site until then, and goes live by
+  itself within the hour after that. The Pages workflow checks every hour and only rebuilds when a
+  scheduled post is due. (GitHub pauses hourly jobs in a repo with no commits for 60 days; any commit, or
+  Actions → Deploy to GitHub Pages → Enable workflow, starts them again.)
+- `updated: 2026-10-05` shows "Last edited: Oct 5, 2026" under the post. `/admin` sets it when you change
+  the text of a post that's already out.
+
+Posts get link previews (Discord, WhatsApp, X, LinkedIn…) and search-engine data automatically: the
+description (or, without one, the start of the post), the post's first picture (or your photo), its dates,
+blog and tags, a canonical address and a `robots.txt` that points to the sitemap.
 
 You can also write posts in the browser: **/admin-panel → + New post**. The server rebuilds the site a few
 seconds after each save.
@@ -92,11 +103,15 @@ change on the token. Never paste the token anywhere else.
 - **Posts**: write, edit and delete posts. **Insert image** adds screenshots: big ones are shrunk to 1600px
   wide (WebP) in the browser and saved under `public/uploads/` in the same commit as the post, so the
   site deploys once. What you type is kept on the device until you save (reopen the post to restore it).
-  With the comments server on, each post shows its views, replies and likes.
+  **Preview** shows the post as it will look; on a wide screen it sits next to the text and updates as you
+  type. **Status → Scheduled** publishes it by itself at the time you pick; **Pin** keeps it on top of its
+  blog. With the comments server on, each post shows its views, replies and likes.
 - **Profile**: your username (logo, posts, hover card, `/members/<name>/`), photo (cropped to 320×320),
   title, about text, member-since date, contact email, and links. The links cover GitHub, Medium,
   Instagram, LinkedIn, YouTube, HackerOne, Bugcrowd, TryHackMe, Hack The Box and a website; empty
-  ones are hidden.
+  ones are hidden. **Profile numbers** sets the Messages, Reaction score and Points on your hover card,
+  author card and profile. Leave one empty to count it automatically: Messages are your posts and replies,
+  Reaction score the likes on them, Points your trophies.
 - **Site**: site name, description, a home-page announcement, the name and description of each blog,
   and the Who Am I text (Markdown; `{handle}` becomes your username).
 - **Analytics**: visitors and page views over 24 hours / 7 / 30 / 90 days, who's online (updates itself),
@@ -105,7 +120,9 @@ change on the token. Never paste the token anywhere else.
   the period's visits for Excel / Google Sheets. Below that, every
   visitor (one per guest cookie) with their IP address, location, network, device and what they read, and
   the raw log of recent visits. You can block an IP from there.
-- **Comments**: every guest reply with its IP address and location. The tab shows how many are new. Delete replies, block an IP (and
+- **Comments**: every guest reply with its IP address and location, its likes, and which reply it
+  answers. The tab shows how many are new or reported. **Reported** lists the replies guests reported,
+  with their reasons: delete them, or **Keep it** to clear the reports. Delete replies, block an IP (and
   delete everything it posted), and see and lift blocks.
 
 Analytics and Comments need the comments server; until it's set up they show the setup steps.
@@ -166,8 +183,12 @@ How it works:
   can't post without loading the page and waiting), at most 3 replies per 2 minutes and 20 a day per IP,
   at most 3 links, no duplicates, no replies to posts that don't exist, and IP blocks from `/admin`.
   Posts show their newest 500 replies.
+  Replies can be liked, and **Reply** answers one: the answer goes under it (#3, #3.1, #3.2…). **Report**
+  flags a reply for you, with an optional reason.
   Guests can't use your username. Signed in to `/admin`, you reply as the author (your photo and an
   **Author** badge) and can delete any reply right on the post.
+- **Live numbers:** the footer's Online statistics count the guests active in the last 5 minutes, and
+  you as the member online while you're signed in to `/admin`. The home page's Messages include replies.
 - **Privacy:** IP addresses and locations are only ever shown in `/admin`. The server checks your GitHub
   token for that the way `/admin` does at login (its user must have push rights on this repo, and the
   token must be able to write to it) and keeps only a hash of it for 30 minutes. The cookie notice mentions the tracking and links
@@ -198,6 +219,7 @@ This runs the integration tests in `test/`. They build a throwaway copy of the p
 its own and start the server against it. Your real posts and database are never touched, and adding or
 deleting posts can't break the tests. They cover auth, sessions, rate
 limiting, path handling and posting rules. The comments server (`api/`) is tested in Node against an
-in-memory stand-in for its database (replies, likes, spam limits, visit tracking, the admin stats, IP
-blocks and clean-up), and its deploy script against a fake Cloudflare. CI (`.github/workflows/ci.yml`) runs
+in-memory stand-in for its database (replies, answers, likes, reports, spam limits, visit tracking, the
+admin stats, IP blocks, upgrades and clean-up), its deploy script against a fake Cloudflare, and the hourly
+scheduled-post check (`scripts/due.mjs`) against a fake site. CI (`.github/workflows/ci.yml`) runs
 them on every push.

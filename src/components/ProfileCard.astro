@@ -1,7 +1,7 @@
 ---
 // Hover card for the owner on the static site (same markup as the server's cards, so the same CSS + script apply).
 import { SITE, OWNER_PROFILE, avatarUrl, profileUrl } from '../config';
-import { ownerStats, fmtDate } from '../lib/owner';
+import { ownerStats, fmtDate, statAttrs, num } from '../lib/owner';
 const s = await ownerStats();
 const link = profileUrl(SITE.handle);
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -20,8 +20,8 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
     </div>
   </div>
   <div class="up-stats">
-    <div><span>Messages</span><b>{s.messages}</b></div>
-    <div><span>Reaction score</span><b>{s.reactions}</b></div>
-    <div><span>Points</span><b>{s.points}</b></div>
+    <div><span>Messages</span><b {...statAttrs(s, 'messages')}>{num(s.messages)}</b></div>
+    <div><span>Reaction score</span><b {...statAttrs(s, 'reactions')}>{num(s.reactions)}</b></div>
+    <div><span>Points</span><b>{num(s.points)}</b></div>
   </div>
 </div>

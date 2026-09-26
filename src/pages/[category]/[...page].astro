@@ -7,12 +7,13 @@ import Crumbs from '../../components/Crumbs.astro';
 import Pager from '../../components/Pager.astro';
 import { CATEGORIES } from '../../content.config';
 import { CATEGORY_LABELS, CATEGORY_DESCRIPTIONS, SITE, STATIC_SITE, API_URL, avatarUrl, profileAttrs } from '../../config';
-import { publishedPosts, readingMinutes } from '../../lib/posts';
+import { publishedPosts, readingMinutes, pinnedFirst } from '../../lib/posts';
 
 export const PAGE_SIZE = 20;
 export async function getStaticPaths({ paginate }) {
   const all = await publishedPosts();
-  return CATEGORIES.flatMap((category) => paginate(all.filter((p) => p.data.category === category), { params: { category }, pageSize: PAGE_SIZE }));
+  // pinned (sticky) posts first, like XenForo's sticky threads
+  return CATEGORIES.flatMap((category) => paginate(pinnedFirst(all.filter((p) => p.data.category === category)), { params: { category }, pageSize: PAGE_SIZE }));
 }
 const { page } = Astro.props;
 const { category } = Astro.params;
@@ -23,6 +24,7 @@ const pageUrl = (n: number) => href(n === 1 ? `/${category}/` : `/${category}/${
 const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 const av = avatarUrl(SITE.handle);
 // every tag used in this blog, for the Filters menu
+const PIN = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>';
 // with the comments API the stats column shows Replies + Views like XenForo (reading time stays under the title)
 const blogTags = [...new Set((await publishedPosts()).filter((p) => p.data.category === category).flatMap((p) => p.data.tags))].sort((a, b) => a.localeCompare(b));
 ---
@@ -55,10 +57,10 @@ const blogTags = [...new Set((await publishedPosts()).filter((p) => p.data.categ
       {page.data.length === 0 ? (
         <div class="tl-empty">There are no threads in this forum.</div>
       ) : page.data.map((p) => (
-        <div class="tl-row" data-post={p.id}>
+        <div class={`tl-row${p.data.pinned ? ' tl-sticky' : ''}`} data-post={p.id}>
           <img class="tl-av" src={av} {...profileAttrs(SITE.handle)} alt="" width="36" height="36" loading="lazy" />
           <div class="tl-main">
-            <a class="tl-title" href={href('/posts/' + p.id)}>{p.data.title}</a>
+            <a class="tl-title" href={href('/posts/' + p.id)}>{p.data.pinned && <span class="tl-pin" title="Sticky" aria-label="Sticky:" set:html={PIN} />}{p.data.title}</a>
             <div class="tl-sub"><span>{SITE.handle}</span> · <span>{fmt(p.data.date)}</span><span class="tl-sub-read"> · {readingMinutes(p.body)} min read</span></div>
           </div>
           <dl class="tl-stats">

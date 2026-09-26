@@ -4,14 +4,14 @@ import ShareBar from '../../components/ShareBar.astro';
 import Crumbs from '../../components/Crumbs.astro';
 import PostCard from '../../components/PostCard.astro';
 import Comments from '../../components/Comments.astro';
-import { publishedPosts, readingMinutes, neighbours, related, tagHref } from '../../lib/posts';
+import { publishedPosts, readingMinutes, neighbours, related, tagHref, isLive, summary, firstImage } from '../../lib/posts';
 import { getCollection, render } from 'astro:content';
 import { CATEGORY_LABELS, SITE, STATIC_SITE, API_URL, OWNER_PROFILE, avatarUrl, profileAttrs, profileUrl } from '../../config';
-import { ownerStats } from '../../lib/owner';
+import { ownerStats, statAttrs, num } from '../../lib/owner';
 const owner = STATIC_SITE ? await ownerStats() : null;
 
 export async function getStaticPaths() {
-  const posts = await getCollection('posts', ({ data }) => !data.draft);
+  const posts = await getCollection('posts', isLive);
   return posts.map((post) => ({ params: { slug: post.id }, props: { post } }));
 }
 const { post } = Astro.props;
@@ -29,8 +29,13 @@ const label = CATEGORY_LABELS[post.data.category] ?? post.data.category;
 const catHref = href('/' + post.data.category);
 const postUrl = new URL(href('/posts/' + post.id), Astro.site).href;
 const d = post.data.date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+// "Last edited" (XenForo shows it at the end of a post): only when it was edited on a later day
+const up = post.data.updated;
+const edited = up && up.toISOString().slice(0, 10) > post.data.date.toISOString().slice(0, 10) ? up.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : '';
+// link previews and search engines: a summary, the post's first picture (default: the owner's photo), its dates
+const article = { published: post.data.date, modified: edited ? up : undefined, section: label, tags: post.data.tags };
 ---
-<Base title={post.data.title} description={post.data.description} shownPosts={onPage}>
+<Base title={post.data.title} description={summary(post)} shownPosts={onPage} image={firstImage(post)} article={article}>
   <Crumbs category={post.data.category} />
 
   <article class="thread">
@@ -88,6 +93,7 @@ const d = post.data.date.toLocaleDateString('en-US', { month: 'short', day: 'num
           </details>
         )}
         <Content />
+        {edited && <div class="msg-edited">Last edited: <time datetime={post.data.updated!.toISOString()}>{edited}</time></div>}
       </div>
     </div>
     <div class="thread-share">
@@ -105,7 +111,7 @@ const d = post.data.date.toLocaleDateString('en-US', { month: 'short', day: 'num
           <a href={profileUrl(SITE.handle)}><img class="ac-av" src={avatarUrl(SITE.handle)} {...profileAttrs(SITE.handle)} alt={SITE.handle} /></a>
           <div class="ac-name"><a href={profileUrl(SITE.handle)}>{SITE.handle}</a> <span class="ac-role">{OWNER_PROFILE.role}</span></div>
           <div class="ac-badges"><span class="ac-badge staff">Staff member</span><span class="ac-badge">Member</span></div>
-          <div class="ac-stats"><div><span>Messages</span><b>{owner.messages}</b></div><div><span>Reaction score</span><b>{owner.reactions}</b></div><div><span>Points</span><b>{owner.points}</b></div></div>
+          <div class="ac-stats"><div><span>Messages</span><b {...statAttrs(owner, 'messages')}>{num(owner.messages)}</b></div><div><span>Reaction score</span><b {...statAttrs(owner, 'reactions')}>{num(owner.reactions)}</b></div><div><span>Points</span><b>{num(owner.points)}</b></div></div>
         </div>
       ) : <Fragment set:html={'<!--AUTHORCARD-->'} />}
     </div>

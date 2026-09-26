@@ -36,7 +36,7 @@ const svg = (tag: string, attrs: Row = {}) => { const e = document.createElement
 
 export function initStats(o: Opts) {
   const $ = (id: string) => document.getElementById(id)!;
-  let days = 7, visitsCursor = 0, visitsFilter: { guest?: string; ip?: string; label?: string } = {}, commentsCursor = 0;
+  let onlyReported = false, days = 7, visitsCursor = 0, visitsFilter: { guest?: string; ip?: string; label?: string } = {}, commentsCursor = 0;
   let titles: Record<string, string> | null = null;
 
   async function api(path: string, body?: object) {
@@ -307,17 +307,21 @@ export function initStats(o: Opts) {
     if (fresh) commentsCursor = 0; else more.disabled = true;
     $('cm-err').hidden = true;
     try {
-      const [d, t, bl] = await Promise.all([api(`/admin/comments?limit=30${commentsCursor ? `&before=${commentsCursor}` : ''}`), postTitles(), fresh ? api('/admin/blocks') : null]);
+      const [d, t, bl] = await Promise.all([api(`/admin/comments?limit=30${commentsCursor ? `&before=${commentsCursor}` : ''}${onlyReported ? '&reported=1' : ''}`), postTitles(), fresh ? api('/admin/blocks') : null]);
       if (my !== seq.comments) return;   // a newer load took over
       if (fresh) $('cm-list').replaceChildren();
       $('cm-count').textContent = `Replies (${num(d.total)})`;
+      $('cm-reported-n').textContent = d.reported ? `(${num(d.reported)})` : '';
       const list = $('cm-list').querySelector('ul') || $('cm-list').appendChild(h('ul', { class: 'st-log' }));
       d.comments.forEach((c: Row) => list.append(h('li', { class: 'st-visit cm-item', id: `cm-${c.id}` },
         h('div', { class: 'st-person-top' },
           h('b', null, c.owner ? o.handle : c.name), h('span', { class: 'st-tag' }, c.owner ? 'author' : 'guest'), c.blocked ? h('span', { class: 'st-tag bad' }, 'blocked') : null,
+          c.reports ? h('span', { class: 'st-tag bad' }, `⚑ reported ${c.reports}×`) : null,
           h('span', { class: 'st-when', title: when(c.ts) }, ago(c.ts))),
-        h('div', { class: 'st-line2' }, 'on ', h('a', { href: `${o.base}/posts/${c.post}/#comment-${c.id}`, target: '_blank', rel: 'noopener' }, t[c.post] || c.post)),
+        h('div', { class: 'st-line2' }, c.parent ? `answer to ${c.parent_name || 'a reply'} on ` : 'on ', h('a', { href: `${o.base}/posts/${c.post}/#comment-${c.id}`, target: '_blank', rel: 'noopener' }, t[c.post] || c.post),
+          c.likes ? ` · ♥ ${num(c.likes)}` : ''),
         h('div', { class: 'cm-body' }, c.body),
+        c.reasons ? h('div', { class: 'st-line2 cm-reasons' }, 'Reported because: ', c.reasons) : null,
         c.owner ? null : h('div', { class: 'st-line2' }, h('code', { class: 'st-ip' }, c.ip || 'IP removed (older than 90 days)'), c.country ? ` · ${flag(c.country)} ${place(c)}` : ''),
         h('div', { class: 'st-acts' },
           h('button', { type: 'button', class: 'st-btn danger', onclick: async (e: Event) => {
@@ -325,8 +329,12 @@ export function initStats(o: Opts) {
             const b = e.currentTarget as HTMLButtonElement; b.disabled = true;
             try { await api(`/admin/comments/${c.id}/delete`, {}); $(`cm-${c.id}`).remove(); } catch (x) { alert((x as Error).message); b.disabled = false; }
           } }, 'Delete'),
+          c.reports ? h('button', { type: 'button', class: 'st-btn', onclick: async (e: Event) => {
+            const b = e.currentTarget as HTMLButtonElement; b.disabled = true;
+            try { await api(`/admin/comments/${c.id}/dismiss`, {}); loadComments(true); } catch (x) { alert((x as Error).message); b.disabled = false; }
+          } }, 'Keep it (dismiss reports)') : null,
           !c.owner && c.ip ? blockButton(c.ip, c.blocked) : null))));
-      if (!list.children.length) $('cm-list').replaceChildren(h('p', { class: 'st-empty' }, 'No replies yet. They show up here as soon as someone replies to a post.'));
+      if (!list.children.length) $('cm-list').replaceChildren(h('p', { class: 'st-empty' }, onlyReported ? 'No reported replies.' : 'No replies yet. They show up here as soon as someone replies to a post.'));
       commentsCursor = d.comments.length ? d.comments[d.comments.length - 1].id : commentsCursor;
       more.hidden = d.comments.length < 30;
       if (bl) $('cm-blocks').replaceChildren(bl.blocks.length
@@ -368,6 +376,11 @@ export function initStats(o: Opts) {
   $('st-visits-more').addEventListener('click', () => loadVisits());
   $('cm-more').addEventListener('click', () => loadComments());
   $('cm-refresh').addEventListener('click', () => loadComments(true));
+  document.querySelectorAll<HTMLButtonElement>('#cm-show [data-show]').forEach((b) => b.addEventListener('click', () => {
+    onlyReported = b.dataset.show === 'reported';
+    document.querySelectorAll('#cm-show [data-show]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    loadComments(true);
+  }));
   // ---------- "Comments 3": replies from guests you haven't seen here yet (remembered on this device) ----------
   const SEEN = 'adm-replies-seen';
   const seen = () => { try { return Number(localStorage.getItem(SEEN)) || 0; } catch { return 0; } };
@@ -379,8 +392,8 @@ export function initStats(o: Opts) {
   }
   async function badge() {
     try {
-      const { comments } = await api('/admin/comments?limit=30');
-      setBadge($('cm-pane').hidden ? comments.filter((c: Row) => !c.owner && c.id > seen()).length : 0);
+      const { comments, reported } = await api('/admin/comments?limit=30');
+      setBadge($('cm-pane').hidden ? comments.filter((c: Row) => !c.owner && c.id > seen()).length + (reported || 0) : 0);
     } catch {}
   }
   setInterval(() => { if (document.visibilityState === 'visible' && o.token()) badge(); }, 120e3);

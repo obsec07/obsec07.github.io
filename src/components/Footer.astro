@@ -1,12 +1,13 @@
 ---
 import { SITE, CATEGORY_LABELS, STATIC_SITE, SOCIAL_LINKS, avatarUrl, profileAttrs, profileUrl, API_URL } from '../config';
 import { getCollection } from 'astro:content';
+import { isLive } from '../lib/posts';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const href = (p: string) => (base + p).replace(/\/{2,}/g, '/') || '/';
 // the newest posts that aren't already on this page (the page passes their ids); nothing left -> no column
 interface Props { exclude?: string[]; }
 const skip = new Set(Astro.props.exclude ?? []);
-const posts = (await getCollection('posts', ({ data }) => !data.draft))
+const posts = (await getCollection('posts', isLive))
   .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf())
   .filter((p) => !skip.has(p.id))
   .slice(0, 3);
@@ -18,12 +19,14 @@ const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'n
     <div class={`foot-grid${posts.length ? '' : ' no-latest'}`}>
       <div class="foot-col">
         <h4>Online statistics</h4>
+        {/* with the comments API these are live (Base.astro): you count as the member while you're signed in to
+            /admin, guests are visitors in the last 5 minutes */}
         <ul class="foot-stats">
-          <li><span>Members online:</span><span>1</span></li>
-          <li><span>Guests online:</span><span>0</span></li>
-          <li><span>Total visitors:</span><span>1</span></li>
+          <li><span>Members online:</span><span data-online="members">1</span></li>
+          <li><span>Guests online:</span><span data-online="guests">0</span></li>
+          <li><span>Total visitors:</span><span data-online="total">1</span></li>
         </ul>
-        <div class="box">Totals may include hidden visitors.</div>
+        <div class="box">{API_URL ? 'Visitors active in the last 5 minutes.' : 'Totals may include hidden visitors.'}</div>
       </div>
 
       {posts.length > 0 && (

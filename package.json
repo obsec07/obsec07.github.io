@@ -22,9 +22,11 @@
     "astro": "^5.13.0",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.7",
+    "dompurify": "^3.4.16",
     "express": "^4.21.2",
     "gray-matter": "^4.0.3",
     "js-yaml": "^4.3.2",
+    "marked": "^18.0.14",
     "multer": "^2.2.0"
   }
 }
