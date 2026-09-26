@@ -861,7 +861,7 @@ a.reply-name:hover { color: var(--pink); text-decoration: none; }
 .reply-form textarea { min-height: 110px; resize: vertical; }
 .reply-form input[type="text"]:focus, .reply-form textarea:focus { outline: none; border-color: var(--pink); }
 .reply-name-field { max-width: 320px; }
-.reply-trap { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
+.reply-trap { display: none; }
 .reply-as { font-size: 14px; color: var(--ink-soft); }
 .reply-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; }
 .reply-hint { margin-right: auto; color: var(--muted); font-size: 13px; }

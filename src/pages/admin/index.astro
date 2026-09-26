@@ -478,7 +478,9 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
 
     // ---- Analytics / Comments: the comments API (api/) ----
     const stats = root.dataset.api ? initStats({ api: root.dataset.api, token: () => session && session.token, handle: root.dataset.handle, base: BASE }) : null;
-    // not set up yet: "Connect now" re-runs the deploy workflow (which deploys the API once the Cloudflare secret exists)
+    // not set up yet: "Connect now" redeploys the site, whose workflow deploys the API once the Cloudflare secret exists.
+    // A token allowed to run workflows starts it directly; the usual one (Contents only) saves api/.redeploy instead:
+    // every push to main redeploys, just like saving a post.
     document.querySelectorAll('.st-connect').forEach((b) => b.addEventListener('click', async () => {
       const msgs = document.querySelectorAll('.st-connect-msg'), say = (html) => msgs.forEach((m) => { m.innerHTML = html; });
       const actions = `https://github.com/${REPO}/actions/workflows/pages.yml`;
@@ -486,9 +488,14 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       try {
         const r = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/pages.yml/dispatches`, { method: 'POST', cache: 'no-store',
           headers: { Authorization: `Bearer ${session.token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' }, body: JSON.stringify({ ref: BRANCH }) });
-        if (r.status === 204) say('✓ Started. The site rebuilds in about 2 minutes; then reload this page.');
-        else say(`Your token can't start it (GitHub ${r.status}). Open <a href="${esc(actions)}" target="_blank" rel="noopener">Actions → Deploy to GitHub Pages</a> and press <b>Run workflow</b>, or just save any post.`);
-      } catch { say(`Couldn't reach GitHub. Open <a href="${esc(actions)}" target="_blank" rel="noopener">Actions → Deploy to GitHub Pages</a> and press <b>Run workflow</b>.`); }
+        if (r.status === 204) { say('✓ Started. The site rebuilds in about 2 minutes; then reload this page.'); return; }
+        const path = 'api/.redeploy', cur = await gh(`${path}?ref=${BRANCH}`);
+        const res = await gh(path, { method: 'PUT', body: JSON.stringify({ message: 'Redeploy the site (connect comments & stats)', branch: BRANCH,
+          content: toB64(enc.encode(`"Connect now" in /admin, ${new Date().toISOString()}: redeploys the site (and the comments & stats API).\n`)), ...(cur ? { sha: cur.sha } : {}) }) });
+        say('✓ Started. Follow it at the top of this page; once it says live, reload this page.');
+        followDeploy(res && res.commit && res.commit.sha, 'the site with comments & stats');
+        $('adm-deploy').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } catch (x) { if (!x.shown) say(`${esc(x.message || "Couldn't reach GitHub.")} You can also open <a href="${esc(actions)}" target="_blank" rel="noopener">Actions → Deploy to GitHub Pages</a> and press <b>Run workflow</b>.`); }
       finally { b.disabled = false; }
     }));
 

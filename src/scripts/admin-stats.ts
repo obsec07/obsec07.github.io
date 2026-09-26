@@ -57,17 +57,40 @@ export function initStats(o: Opts) {
     catch { titles = {}; }
     return titles!;
   }
+  // a link to a page of this site; anything else stored as a "path" (it comes from visitors) stays plain text
+  function pageLink(path: string, text: string, cls = '') {
+    try { const u = new URL(path, location.origin); if (u.origin === location.origin) return h('a', { href: u.pathname, target: '_blank', rel: 'noopener', class: cls || null }, text); } catch {}
+    return h('span', { class: cls || null }, text);
+  }
+  // Each list is loaded by the newest request only: a tab switch, Refresh or Block while one is running used to
+  // append the same rows twice. fresh loads bump the counter; "Show more" checks it didn't move meanwhile.
+  const seq = { stats: 0, visitors: 0, visits: 0, comments: 0 };
+  // the admin's UTC offset for each stretch of [from, to] ("start:offset,…"), so a daylight-saving change mid-range
+  // doesn't shift the days before it
+  function tzSegments(from: number, to: number) {
+    const off = (t: number) => -new Date(t).getTimezoneOffset();
+    const segs: [number, number][] = [[from, off(from)]];
+    for (let t = from + 3600e3; t <= to + 3600e3; t += 3600e3) {
+      const cur = segs[segs.length - 1][1];
+      if (off(t) === cur) continue;
+      let lo = t - 3600e3, hi = t;   // narrow it down to the minute
+      while (hi - lo > 60e3) { const mid = lo + Math.floor((hi - lo) / 120e3) * 60e3; if (off(mid) === cur) lo = mid; else hi = mid; }
+      segs.push([hi, off(hi)]);
+    }
+    return segs.map(([t, o]) => `${Math.round(t)}:${o}`).join(',');
+  }
   const cleanTitle = (t: string | null, path: string) => (t ? t.replace(new RegExp(`\\s·\\s${o.handle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), '') : path);
 
   // ---------- overview ----------
   async function loadStats() {
-    const body = $('st-body'); body.classList.add('st-loading'); $('st-err').hidden = true;
+    const body = $('st-body'), my = ++seq.stats; body.classList.add('st-loading'); $('st-err').hidden = true;
     try {
-      const s = await api(`/admin/stats?days=${days}&tzo=${-new Date().getTimezoneOffset()}`);
+      const s = await api(`/admin/stats?days=${days}&tz=${tzSegments(Date.now() - (days + 1) * DAY, Date.now())}`);
+      if (my !== seq.stats) return;
       renderKpis(s); renderChart(s); renderTops(s);
       $('st-bots').textContent = s.bots ? `${num(s.bots)} visit${s.bots === 1 ? '' : 's'} by bots and crawlers left out.` : '';
-    } catch (x) { fail('st-err', x); }
-    finally { body.classList.remove('st-loading'); }
+    } catch (x) { if (my === seq.stats) fail('st-err', x); }
+    finally { if (my === seq.stats) body.classList.remove('st-loading'); }
   }
   function renderKpis(s: Row) {
     const tile = (label: string, value: number, note = '') => h('div', { class: 'st-kpi' }, h('div', { class: 'st-kpi-label' }, label), h('div', { class: 'st-kpi-value' }, num(value)), note ? h('div', { class: 'st-kpi-note' }, note) : null);
@@ -81,15 +104,20 @@ export function initStats(o: Opts) {
   // views + visitors over time: two lines on one axis (same unit), crosshair tooltip, table view
   let lastSeries: { key: string; label: string; views: number; visitors: number }[] = [];
   function buckets(s: Row) {
-    const byKey = new Map((s.series as Row[]).map((r) => [r.b, r]));
+    const byKey = new Map((s.series as Row[]).map((r) => [String(r.b), r]));
     const pad = (n: number) => String(n).padStart(2, '0');
     const out = [];
-    const start = new Date(Date.now() - days * DAY);
-    if (days === 1) start.setMinutes(0, 0, 0); else start.setHours(0, 0, 0, 0);
-    for (let t = new Date(start); t.getTime() <= Date.now(); days === 1 ? t.setHours(t.getHours() + 1) : t.setDate(t.getDate() + 1)) {
-      const d = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`, key = days === 1 ? `${d} ${pad(t.getHours())}:00` : d;
-      const r = byKey.get(key) || {};
-      out.push({ key, label: days === 1 ? `${pad(t.getHours())}:00` : t.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), views: r.views || 0, visitors: r.visitors || 0 });
+    if (days === 1) {   // the API counts by UTC hour; each is labelled in local time here
+      for (let hr = Math.floor((Date.now() - DAY) / 3600e3); hr <= Math.floor(Date.now() / 3600e3); hr++) {
+        const r = byKey.get(String(hr)) || {};
+        out.push({ key: String(hr), label: `${pad(new Date(hr * 3600e3).getHours())}:00`, views: r.views || 0, visitors: r.visitors || 0 });
+      }
+      return out;
+    }
+    const t = new Date(Date.now() - days * DAY); t.setHours(0, 0, 0, 0);
+    for (; t.getTime() <= Date.now(); t.setDate(t.getDate() + 1)) {   // local days (the API used the same offsets)
+      const key = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())}`, r = byKey.get(key) || {};
+      out.push({ key, label: t.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), views: r.views || 0, visitors: r.visitors || 0 });
     }
     return out;
   }
@@ -169,7 +197,7 @@ export function initStats(o: Opts) {
       : h('p', { class: 'st-empty' }, empty));
   }
   function renderTops(s: Row) {
-    bars('st-pages', s.pages, (r) => [h('a', { href: r.path, target: '_blank', rel: 'noopener' }, cleanTitle(r.title, r.path)), h('span', { class: 'st-sub' }, r.path)], (r) => r.views);
+    bars('st-pages', s.pages, (r) => [pageLink(r.path, cleanTitle(r.title, r.path)), h('span', { class: 'st-sub' }, r.path)], (r) => r.views);
     bars('st-refs', s.referrers, (r) => [r.ref_host], undefined, 'No visits from other sites yet.');
     bars('st-countries', s.countries, (r) => [`${flag(r.country)} ${country(r.country)}`]);
     bars('st-cities', s.cities, (r) => [`${flag(r.country)} ${[r.city, r.region && r.region !== r.city ? r.region : null].filter(Boolean).join(', ')}`, h('span', { class: 'st-sub' }, country(r.country))]);
@@ -180,11 +208,12 @@ export function initStats(o: Opts) {
 
   // ---------- visitors (one row per guest cookie) ----------
   async function loadVisitors() {
-    $('st-visitors-err').hidden = true;
+    const my = ++seq.visitors; $('st-visitors-err').hidden = true;
     try {
-      const { visitors } = await api(`/admin/visitors?days=${Math.max(days, 7)}`);
+      const { visitors } = await api(`/admin/visitors?days=${days}`);
+      if (my !== seq.visitors) return;
       $('st-visitors').replaceChildren(visitors.length ? h('ul', { class: 'st-people' }, visitors.map(person)) : h('p', { class: 'st-empty' }, 'No visitors yet.'));
-    } catch (x) { fail('st-visitors-err', x); }
+    } catch (x) { if (my === seq.visitors) fail('st-visitors-err', x); }
   }
   function person(v: Row) {
     const name = v.name || (v.guest ? `Guest ${v.guest.slice(0, 6)}` : 'No cookie');
@@ -207,7 +236,8 @@ export function initStats(o: Opts) {
     $('st-visits-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   async function loadVisits(fresh = false) {
-    if (fresh) { visitsCursor = 0; $('st-visits').replaceChildren(); }
+    const my = fresh ? ++seq.visits : seq.visits, more = $('st-visits-more') as HTMLButtonElement;
+    if (fresh) visitsCursor = 0; else more.disabled = true;
     $('st-visits-err').hidden = true;
     const f = visitsFilter, q = new URLSearchParams({ limit: '40' });
     if (visitsCursor) q.set('before', String(visitsCursor));
@@ -215,10 +245,12 @@ export function initStats(o: Opts) {
     $('st-visits-filter').replaceChildren(f.label ? h('button', { type: 'button', class: 'st-chip', onclick: () => { visitsFilter = {}; loadVisits(true); } }, `Only ${f.label} ×`) : '');
     try {
       const { visits } = await api(`/admin/visits?${q}`);
+      if (my !== seq.visits) return;   // a newer load took over
+      if (fresh) $('st-visits').replaceChildren();
       const list = $('st-visits').querySelector('ul') || $('st-visits').appendChild(h('ul', { class: 'st-log' }));
       visits.forEach((v: Row) => list.append(h('li', { class: 'st-visit' },
         h('div', { class: 'st-person-top' },
-          h('a', { href: v.path, target: '_blank', rel: 'noopener', class: 'st-page' }, cleanTitle(v.title, v.path)),
+          pageLink(v.path, cleanTitle(v.title, v.path), 'st-page'),
           h('span', { class: 'st-when', title: when(v.ts) }, ago(v.ts))),
         h('div', { class: 'st-line1' }, `${flag(v.country)} ${place(v)}`, v.timezone ? h('span', { class: 'st-sub' }, ` · ${v.timezone}`) : ''),
         h('div', { class: 'st-line2' }, h('code', { class: 'st-ip' }, v.ip || 'no IP'), v.org ? ` · ${v.org}` : '', v.asn ? ` (AS${v.asn})` : '', ` · ${[v.device, v.os, v.browser].filter(Boolean).join(' · ')}`, v.screen ? ` · ${v.screen}` : '', v.lang ? ` · ${v.lang}` : ''),
@@ -228,8 +260,9 @@ export function initStats(o: Opts) {
           v.ip ? blockButton(v.ip, v.blocked) : null))));
       if (!list.children.length) $('st-visits').replaceChildren(h('p', { class: 'st-empty' }, 'No visits yet.'));
       visitsCursor = visits.length ? visits[visits.length - 1].id : visitsCursor;
-      $('st-visits-more').hidden = visits.length < 40;
-    } catch (x) { fail('st-visits-err', x); }
+      more.hidden = visits.length < 40;
+    } catch (x) { if (my === seq.visits) fail('st-visits-err', x); }
+    finally { more.disabled = false; }
   }
 
   // ---------- blocking ----------
@@ -250,10 +283,13 @@ export function initStats(o: Opts) {
 
   // ---------- comments (moderation) ----------
   async function loadComments(fresh = false) {
-    if (fresh) { commentsCursor = 0; $('cm-list').replaceChildren(); }
+    const my = fresh ? ++seq.comments : seq.comments, more = $('cm-more') as HTMLButtonElement;
+    if (fresh) commentsCursor = 0; else more.disabled = true;
     $('cm-err').hidden = true;
     try {
       const [d, t, bl] = await Promise.all([api(`/admin/comments?limit=30${commentsCursor ? `&before=${commentsCursor}` : ''}`), postTitles(), fresh ? api('/admin/blocks') : null]);
+      if (my !== seq.comments) return;   // a newer load took over
+      if (fresh) $('cm-list').replaceChildren();
       $('cm-count').textContent = `Replies (${num(d.total)})`;
       const list = $('cm-list').querySelector('ul') || $('cm-list').appendChild(h('ul', { class: 'st-log' }));
       d.comments.forEach((c: Row) => list.append(h('li', { class: 'st-visit cm-item', id: `cm-${c.id}` },
@@ -272,11 +308,12 @@ export function initStats(o: Opts) {
           !c.owner && c.ip ? blockButton(c.ip, c.blocked) : null))));
       if (!list.children.length) $('cm-list').replaceChildren(h('p', { class: 'st-empty' }, 'No replies yet. They show up here as soon as someone replies to a post.'));
       commentsCursor = d.comments.length ? d.comments[d.comments.length - 1].id : commentsCursor;
-      $('cm-more').hidden = d.comments.length < 30;
+      more.hidden = d.comments.length < 30;
       if (bl) $('cm-blocks').replaceChildren(bl.blocks.length
         ? h('ul', { class: 'st-log' }, bl.blocks.map((b: Row) => h('li', { class: 'st-visit' }, h('div', { class: 'st-person-top' }, h('code', { class: 'st-ip' }, b.ip), b.note ? h('span', { class: 'st-sub' }, b.note) : null, h('span', { class: 'st-when', title: when(b.ts) }, `blocked ${ago(b.ts)}`)), h('div', { class: 'st-acts' }, blockButton(b.ip, true)))))
         : h('p', { class: 'st-empty' }, 'Nobody is blocked.'));
-    } catch (x) { fail('cm-err', x); }
+    } catch (x) { if (my === seq.comments) fail('cm-err', x); }
+    finally { more.disabled = false; }
   }
 
   function refreshAll() {

@@ -2,11 +2,13 @@
 // GitHub (the admin sign-in check) and the blog's search index are faked, so nothing leaves the machine.
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHmac } from 'node:crypto';
 import worker from '../api/src/index.js';
 import { d1 } from './d1.js';
 
 const SITE = 'https://blog.example';
 const GOOD = 'github_pat_' + 'A'.repeat(40), BAD = 'github_pat_' + 'B'.repeat(40);
+const READER = 'ghp_' + 'R'.repeat(36);   // someone else's valid token: GitHub lets it read the public repo, not push
 const G1 = 'a'.repeat(32), G2 = 'b'.repeat(32);
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 const WIN_CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
@@ -17,10 +19,16 @@ const realFetch = globalThis.fetch;
 globalThis.fetch = async (url, init = {}) => {
   const u = String(url);
   if (u === `${SITE}/search-index.json`) return Response.json([{ url: '/posts/hello-world' }, { url: '/posts/second-post/' }]);
-  if (u.startsWith('https://api.github.com/repos/me/blog/contents/')) {
+  if (u.startsWith('https://api.github.com/repos/me/blog')) {
     github++;
     const auth = new Headers(init.headers).get('authorization');
-    return new Response('{}', { status: auth === `Bearer ${GOOD}` && init.method === 'PUT' ? 422 : 403 });
+    if (u === 'https://api.github.com/repos/me/blog') {   // the repo, with what this token's user may do
+      if (auth === `Bearer ${BAD}`) return new Response('{"message":"Bad credentials"}', { status: 401 });
+      return Response.json({ full_name: 'me/blog', permissions: { admin: auth === `Bearer ${GOOD}`, push: auth === `Bearer ${GOOD}`, pull: true } });
+    }
+    // the write check. READER also gets 422 here, as if GitHub looked at the body before the permissions: the
+    // push-rights check above still keeps it out
+    return new Response('{}', { status: [`Bearer ${GOOD}`, `Bearer ${READER}`].includes(auth) && init.method === 'PUT' ? 422 : 403 });
   }
   return realFetch(url, init);
 };
@@ -36,8 +44,14 @@ async function call(method, path, { body, ip = '203.0.113.7', ua = IPHONE, cf = 
   const text = await res.text();
   return { status: res.status, headers: res.headers, data: text ? JSON.parse(text) : null };
 }
-const comment = (slug, body, opts = {}) => call('POST', `/posts/${slug}/comments`, { ...opts, body: { guest: G1, name: 'Alice', t: 5000, ...body } });
 const rows = (sql, ...a) => env.DB.sqlite.prepare(sql).all(...a);
+// a form token like GET /posts/:slug hands out, made `age` ms ago (signed with the key the Worker stored)
+async function form(slug, age = 5000) {
+  if (!rows("SELECT name FROM sqlite_master WHERE name = 'meta'").length) await call('GET', '/health');
+  const key = Buffer.from(rows("SELECT v FROM meta WHERE k = 'form_key'")[0].v, 'hex'), ts = Date.now() - age;
+  return `${ts}.${createHmac('sha256', key).update(`${slug}.${ts}`).digest('base64url')}`;
+}
+const comment = async (slug, body, opts = {}) => call('POST', `/posts/${slug}/comments`, { ...opts, body: { guest: G1, name: 'Alice', form: await form(slug), ...body } });
 
 test('health + CORS: the blog may call it, other sites may not write', async () => {
   const h = await call('GET', '/health');
@@ -52,13 +66,18 @@ test('health + CORS: the blog may call it, other sites may not write', async () 
   assert.equal(evil.headers.get('access-control-allow-origin'), null);
   assert.equal(rows('SELECT * FROM likes').length, 0);
   assert.equal((await call('GET', '/nope')).status, 404);
+  assert.equal((await call('GET', '/posts/%E0%A4%A')).status, 400);   // broken %-encoding: a 400, not a crash
+  // no site configured: no other site may write
+  env.SITE_URL = ''; env.ALLOWED_ORIGINS = '';
+  assert.equal((await call('POST', '/posts/hello-world/like', { body: { guest: G1, like: true } })).status, 403);
 });
 
 test('page views: IP, location, device and referrer are recorded; bots are flagged', async () => {
   assert.equal((await call('POST', '/hit', { body: { path: '/posts/hello-world/?utm=x#top', ref: 'https://www.google.com/search?q=secret', title: 'Hello', guest: G1, lang: 'en-IN', screen: '390x844' } })).status, 204);
   await call('POST', '/hit', { body: { path: '/ctf/', ref: `${SITE}/`, guest: G1 } });
   await call('POST', '/hit', { ua: 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)', body: { path: '/' } });
-  await call('POST', '/hit', { body: { path: 'https://evil.example/' } });   // not a path: ignored
+  // not a path on this site: ignored. Browsers read '/\\x' and '/<tab>/x' as //x, another site
+  for (const path of ['https://evil.example/', '//evil.example/', '/\\evil.example/login', '/\t/evil.example', '/\n/evil.example', '/ /evil.example']) await call('POST', '/hit', { body: { path } });
   const v = rows('SELECT * FROM visits ORDER BY id');
   assert.equal(v.length, 3);
   assert.equal(v[0].path, '/posts/hello-world/');
@@ -96,8 +115,12 @@ test('comment checks: name, body, spam trap, speed, owner name, links, real post
   await err({ name: '' }, 400, /name/i);
   await err({ body: '   ' }, 400, /Write something/);
   await err({ body: 'x'.repeat(2001) }, 400, /at most 2000/);
-  await err({ body: 'hi', website: 'http://spam' }, 400, /spam/);
-  await err({ body: 'hi', t: 300 }, 400, /quick/);
+  await err({ body: 'hi', trap: 'http://spam' }, 400, /spam/);
+  await err({ body: 'hi', form: undefined }, 400, /Reload/);                          // no form token: posted without the page
+  await err({ body: 'hi', form: await form('hello-world', 500) }, 400, /quick/);       // under 3 seconds after loading
+  await err({ body: 'hi', form: await form('second-post') }, 400, /Reload/);           // a token for another post
+  await err({ body: 'hi', form: (await form('hello-world')).replace(/.$/, (c) => (c === 'A' ? 'B' : 'A')) }, 400, /Reload/);   // tampered
+  await err({ body: 'hi', form: await form('hello-world', 25 * 3600e3) }, 400, /long time/);
   await err({ body: 'hi', name: 'TOBI' }, 400, /site owner/);
   await err({ body: 'hi', name: 'buy at www.x.com' }, 400, /links/);
   await err({ body: 'a http://1 http://2 http://3 http://4' }, 400, /links/);
@@ -164,6 +187,7 @@ test('admin: needs a GitHub token that can write to the repo; checked once, then
   assert.equal((await call('GET', '/admin/stats', { token: 'hello' })).status, 401);
   assert.equal(github, 0);   // not even asked: doesn't look like a GitHub token
   assert.equal((await call('GET', '/admin/stats', { token: BAD })).status, 401);
+  assert.equal((await call('GET', '/admin/stats', { token: READER })).status, 401);   // a real token, but its user can't push
   assert.equal((await call('GET', '/admin/me', { token: GOOD })).status, 200);
   const asked = github;
   await call('GET', '/admin/stats', { token: GOOD }); await call('GET', '/admin/visits', { token: GOOD });
@@ -195,7 +219,8 @@ test('admin analytics: totals, daily series, top lists, visitors with IP + locat
   assert.deepEqual(s.cities.map((c) => c.city).sort(), ['Mumbai', 'San Jose']);
   assert.deepEqual(s.referrers, [{ ref_host: 't.co', views: 1, visitors: 1 }]);
   assert.deepEqual(s.devices.map((d) => d.device).sort(), ['Desktop', 'Mobile']);
-  assert.equal((await call('GET', '/admin/stats?days=1', { token: GOOD })).data.series[0].b.length, 16);   // hourly
+  const hourly = (await call('GET', '/admin/stats?days=1', { token: GOOD })).data.series;
+  assert.equal(hourly[0].b, Math.floor(Date.now() / 3600e3));   // by UTC hour; the page labels it in local time
 
   const v = (await call('GET', '/admin/visits?limit=10', { token: GOOD })).data.visits;
   assert.equal(v.length, 3);                                   // bots hidden
@@ -234,12 +259,49 @@ test('admin moderation: list comments with IPs, delete, block (and remove) an IP
   assert.deepEqual(rows('SELECT body FROM comments').map((r) => r.body), ['again']);
 });
 
-test('daily clean-up: old visits go, old comments lose their IP', async () => {
+test('daily clean-up: old visits go; old replies and likes lose their IP and location', async () => {
   await call('POST', '/hit', { body: { path: '/' } });
   await comment('hello-world', { body: 'old' });
-  env.DB.sqlite.exec('UPDATE visits SET ts = ts - 91 * 86400000; UPDATE comments SET ts = ts - 91 * 86400000');
+  await call('POST', '/posts/hello-world/like', { body: { guest: G1, like: true } });
+  env.DB.sqlite.exec('UPDATE visits SET ts = ts - 91 * 86400000; UPDATE comments SET ts = ts - 91 * 86400000; UPDATE likes SET ts = ts - 91 * 86400000');
   await call('POST', '/hit', { body: { path: '/new' } });
+  await comment('hello-world', { body: 'new' }, { ip: '198.51.100.77' });
   await worker.scheduled({}, env);
   assert.deepEqual(rows('SELECT path FROM visits').map((r) => r.path), ['/new']);
-  assert.deepEqual(rows('SELECT body, ip FROM comments').map((r) => [r.body, r.ip]), [['old', null]]);
+  assert.deepEqual(rows('SELECT body, ip, country, region, city FROM comments ORDER BY id').map((r) => Object.values(r)),
+    [['old', null, null, null, null], ['new', '198.51.100.77', 'IN', 'Maharashtra', 'Mumbai']]);
+  assert.deepEqual(rows('SELECT guest, ip FROM likes').map((r) => [r.guest, r.ip]), [[G1, null]]);   // the like itself stays
+});
+
+test('a post with more than 500 replies shows the newest 500 (and says how many there are)', async () => {
+  await call('GET', '/health');
+  const ins = env.DB.sqlite.prepare("INSERT INTO comments (post, name, body, ts) VALUES ('hello-world', 'x', ?, ?)");
+  for (let i = 1; i <= 505; i++) ins.run(`reply ${i}`, 1e12 + i);
+  const d = (await call('GET', '/posts/hello-world')).data;
+  assert.equal(d.total, 505);
+  assert.equal(d.comments.length, 500);
+  assert.deepEqual([d.comments[0].body, d.comments[499].body], ['reply 6', 'reply 505']);
+  assert.match(d.form, /^\d{13}\.[\w-]{43}$/);
+});
+
+test('likes and deletes are capped in short bursts per IP', async () => {
+  let last;
+  for (let i = 0; i < 31; i++) last = await call('POST', '/posts/hello-world/like', { ip: '198.51.100.99', body: { guest: G2, like: i % 2 === 0 } });
+  assert.equal(last.status, 429);
+  assert.equal((await call('POST', '/posts/hello-world/like', { ip: '198.51.100.98', body: { guest: G2, like: true } })).status, 200);   // other IPs aren't affected
+});
+
+test('daily chart: days follow the admin\'s clock across a daylight-saving change', async () => {
+  const d0 = new Date(Date.now() - 3 * 864e5), T = Date.UTC(d0.getUTCFullYear(), d0.getUTCMonth(), d0.getUTCDate(), 23);   // 23:00 UTC, 3 days ago
+  await call('GET', '/health');
+  const ins = env.DB.sqlite.prepare("INSERT INTO visits (ts, path, guest, bot) VALUES (?, '/', ?, 0)");
+  ins.run(T - 600e3, G1);   // 22:50 UTC: local 22:50 (UTC+0 until T)
+  ins.run(T + 600e3, G2);   // 23:10 UTC: local 00:10 the next day (UTC+1 from T)
+  const day = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const one = (await call('GET', '/admin/stats?days=7&tzo=0', { token: GOOD })).data.series;
+  assert.deepEqual(one.map((r) => [r.b, r.views]), [[day(T), 2]]);
+  const two = (await call('GET', `/admin/stats?days=7&tz=${T - 30 * 864e5}:0,${T}:60`, { token: GOOD })).data.series;
+  assert.deepEqual(two.map((r) => [r.b, r.views]), [[day(T), 1], [day(T + 864e5), 1]]);
+  assert.equal((await call('GET', '/admin/stats?days=7&tz=1;DROP TABLE visits:0', { token: GOOD })).status, 200);   // junk is ignored
+  assert.equal(rows('SELECT COUNT(*) n FROM visits')[0].n, 2);
 });
