@@ -18,5 +18,8 @@ const actions = `https://github.com/${repo}/actions/workflows/pages.yml`;
     <li>Come back here and press <button type="button" class="save-btn st-connect">Connect now</button> It redeploys the site (by saving a tiny file, <code>api/.redeploy</code>, like saving a post does), which sets up the server. About 2 minutes later reload this page.</li>
   </ol>
   <p class="st-connect-msg" role="status"></p>
+  {API_STATE === 'off' && (
+    <p class="st-note"><b>Pressed Connect now and still see these steps?</b> The last deploy didn't find the secret. It has to be under <b>Settings → Secrets and variables → Actions → Repository secrets</b>, named exactly <code>CLOUDFLARE_API_TOKEN</code> (not a Variable, and not an Environment secret). Add it there, then press Connect now again.</p>
+  )}
   <p class="st-note">The server stores visits for 90 days. Visitors are told about it in the cookie notice and on the <a href={`${import.meta.env.BASE_URL.replace(/\/$/, '')}/privacy`}>Privacy</a> page.</p>
 </div>
