@@ -199,8 +199,9 @@ async function formToken(env, slug) {
 }
 async function checkForm(env, slug, token) {
   const m = /^(\d{13})\.([A-Za-z0-9_-]{43})$/.exec(typeof token === 'string' ? token : '');
-  const { formKey } = await ready(env);
-  if (!m || !(await crypto.subtle.verify('HMAC', formKey, unb64url(m[2]), enc.encode(`${slug}.${m[1]}`)))) throw new HttpError(400, 'Reload the page and try again.');
+  const { formKey } = await ready(env), sig = m && unb64url(m[2]);
+  // exactly the spelling we handed out (the last base64 character has spare bits that decode the same)
+  if (!m || b64url(sig) !== m[2] || !(await crypto.subtle.verify('HMAC', formKey, sig, enc.encode(`${slug}.${m[1]}`)))) throw new HttpError(400, 'Reload the page and try again.');
   const age = now() - Number(m[1]);
   if (age < 3000) throw new HttpError(400, 'That was quick! Wait a moment and post again.');
   if (age > DAY) throw new HttpError(400, 'This page has been open a long time. Reload it and post again.');

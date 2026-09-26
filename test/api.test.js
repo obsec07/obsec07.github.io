@@ -119,7 +119,15 @@ test('comment checks: name, body, spam trap, speed, owner name, links, real post
   await err({ body: 'hi', form: undefined }, 400, /Reload/);                          // no form token: posted without the page
   await err({ body: 'hi', form: await form('hello-world', 500) }, 400, /quick/);       // under 3 seconds after loading
   await err({ body: 'hi', form: await form('second-post') }, 400, /Reload/);           // a token for another post
-  await err({ body: 'hi', form: (await form('hello-world')).replace(/.$/, (c) => (c === 'A' ? 'B' : 'A')) }, 400, /Reload/);   // tampered
+  const flip = (t, i) => t.slice(0, i) + (t[i] === 'A' ? 'B' : 'A') + t.slice(i + 1);
+  const good = await form('hello-world'), dot = good.indexOf('.');
+  await err({ body: 'hi', form: flip(good, dot + 10) }, 400, /Reload/);                // tampered signature
+  await err({ body: 'hi', form: flip(good, dot - 1) }, 400, /Reload/);                 // tampered time
+  // same signature bytes, other spelling: the last character's lowest bit is spare in 43-character base64
+  const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const respelled = good.slice(0, -1) + B64[B64.indexOf(good.at(-1)) ^ 1];
+  assert.deepEqual(Buffer.from(respelled.slice(dot + 1), 'base64url'), Buffer.from(good.slice(dot + 1), 'base64url'));
+  await err({ body: 'hi', form: respelled }, 400, /Reload/);
   await err({ body: 'hi', form: await form('hello-world', 25 * 3600e3) }, 400, /long time/);
   await err({ body: 'hi', name: 'TOBI' }, 400, /site owner/);
   await err({ body: 'hi', name: 'buy at www.x.com' }, 400, /links/);
