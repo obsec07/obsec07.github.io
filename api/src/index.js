@@ -162,8 +162,8 @@ async function isAdmin(req, env) {
   const repo = await fetch(`${api}/repos/${env.GITHUB_REPO}`, { headers });
   if ([401, 403, 404].includes(repo.status)) return no();
   if (!repo.ok) throw odd(repo.status);
-  const perms = (await repo.json().catch(() => ({}))).permissions || {};
-  if (!(perms.push || perms.maintain || perms.admin)) return no();
+  const perms = (await repo.json().catch(() => ({}))).permissions;
+  if (perms && !(perms.push || perms.maintain || perms.admin)) return no();   // no field: step 2 decides (as /admin's login)
   // 2. can this token write: a PUT with no file content changes nothing; 422 = allowed, 401/403/404 = not
   const r = await fetch(`${api}/repos/${env.GITHUB_REPO}/contents/src/content/posts/.admin-write-check`, {
     method: 'PUT', headers, body: JSON.stringify({ message: 'write check', branch: 'main' }),
