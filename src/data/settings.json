@@ -10,9 +10,9 @@
   "avatarVersion": "b28d10889c",
   "socials": {
     "github": "https://github.com/obsec07",
-    "medium": "https://medium.com/@obsec07",
-    "instagram": "https://instagram.com/obsec07",
-    "linkedin": "",
+    "medium": "",
+    "instagram": "https://instagram.com/_.sardar07",
+    "linkedin": "https://www.linkedin.com/in/sardar07",
     "youtube": "",
     "hackerone": "",
     "bugcrowd": "",
@@ -37,5 +37,10 @@
       "title": "Tools",
       "description": "InfoSec related tools."
     }
+  },
+  "stats": {
+    "messages": "",
+    "reactions": "",
+    "points": ""
   }
 }
