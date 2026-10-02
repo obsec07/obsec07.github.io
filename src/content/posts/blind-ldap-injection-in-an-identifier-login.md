@@ -1,10 +1,11 @@
 ---
-title: Blind LDAP Injection in an Identifier-Login
+title: $450-Blind LDAP Injection in an Identifier-Login
 date: '2026-09-26'
 category: 0day
 description: ''
 tags: []
 draft: false
+updated: '2026-10-02'
 ---
 
 # How I Found a Blind LDAP Injection in an Identifier-First Login
