@@ -1,6 +1,6 @@
 ---
 title: $1200-How i found Authentication Bypass
-date: '2026-09-25'
+date: '2026-08-29'
 category: infosec
 description: Authentication Bypass
 tags:
