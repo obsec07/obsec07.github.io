@@ -1,12 +1,12 @@
 ---
-title: Cross Users mail changing(IDOR)
+title: Cross Users mail changing-IDOR
 date: '2026-08-31'
 category: infosec
 description: ''
 tags:
   - web
 draft: false
-updated: '2026-09-26'
+updated: '2026-10-04'
 ---
 
 # Following an Email Change Toward Account Takeover
