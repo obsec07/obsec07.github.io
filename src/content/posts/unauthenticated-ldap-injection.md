@@ -5,9 +5,12 @@ category: infosec
 description: How i found unauthenticated LDAP injection that could lead to mass user's PII exctraction
 tags: []
 draft: false
+updated: '2026-10-04'
 ---
 
-TL;DR: I found an LDAP wildcard injection in an account-recovery API that accepted requests without authentication. Different responses to the `identifier` field let me recover one email address, a character at a time. The tricky part was proving the responses were reliable: sending requests too quickly produced false positives. The fix needs both proper LDAP filter escaping and recovery responses that don't reveal account information.
+**TL;DR**,
+
+ I found an LDAP wildcard injection in an account-recovery API that accepted requests without authentication. Different responses to the `identifier` field let me recover one email address, a character at a time. The tricky part was proving the responses were reliable: sending requests too quickly produced false positives. The fix needs both proper LDAP filter escaping and recovery responses that don't reveal account information.
 
 # How I Found an LDAP Injection With a Single Asterisk
 
