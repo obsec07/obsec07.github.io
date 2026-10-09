@@ -1,6 +1,6 @@
 ---
 title: Unauthenticated-LDAP-Injection
-date: '2026-10-04'
+date: '2026-10-03'
 category: infosec
 description: How i found unauthenticated LDAP injection that could lead to mass user's PII exctraction
 tags: []
