@@ -1,7 +1,7 @@
 ---
 title: How I Passed CRTA..!
 date: '2026-10-09'
-category: ctf
+category: infosec
 description: 'My real CRTA exam experience: the reconnaissance, web vulnerabilities, Linux escalation, credential discoveries, and Active Directory attack path I followed, with exam-sensitive details sanitized.'
 tags:
   - CRTA
