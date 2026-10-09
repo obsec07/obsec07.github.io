@@ -8,7 +8,6 @@ tags:
   - Active Directory
   - Red Teaming
   - Penetration Testing
-  - Exam Experience
 draft: false
 ---
 
