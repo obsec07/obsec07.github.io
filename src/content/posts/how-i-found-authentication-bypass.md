@@ -6,6 +6,7 @@ description: Authentication Bypass
 tags:
   - web
 draft: false
+pinned: true
 updated: '2026-10-02'
 ---
 
