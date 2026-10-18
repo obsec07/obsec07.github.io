@@ -1,11 +1,12 @@
 ---
-title: How i found Authentication Bypass
-date: '2026-09-25'
+title: $1200-How i found Authentication Bypass
+date: '2026-08-29'
 category: infosec
 description: Authentication Bypass
 tags:
   - web
 draft: false
+updated: '2026-10-02'
 ---
 
 # How a Failed Login Opened an Admin Panel

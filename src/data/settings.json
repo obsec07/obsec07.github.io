@@ -2,17 +2,17 @@
   "handle": "tobi",
   "siteTitle": "tobi",
   "siteDescription": "Vulnerability research, CTF writeups, infosec notes and tool releases.",
-  "banner": "Hey, glad you're here!, My bounty reports are dropping once disclosure clears, so stay tuned. Feel free to fork anything you like!",
+  "banner": "Soon, Im gonna disclose my $5500 Authentication Bypass Report",
   "email": "obito07@proton.me",
   "role": "Administrator",
-  "joined": "2024-09-06",
+  "joined": "2025-09-06",
   "about": "Security researcher. I hunt for bugs in web apps, play CTFs and write up the interesting ones here.",
   "avatarVersion": "b28d10889c",
   "socials": {
     "github": "https://github.com/obsec07",
-    "medium": "https://medium.com/@obsec07",
-    "instagram": "https://instagram.com/obsec07",
-    "linkedin": "",
+    "medium": "",
+    "instagram": "https://instagram.com/_.sardar07",
+    "linkedin": "https://www.linkedin.com/in/sardar07",
     "youtube": "",
     "hackerone": "",
     "bugcrowd": "",
@@ -37,5 +37,10 @@
       "title": "Tools",
       "description": "InfoSec related tools."
     }
+  },
+  "stats": {
+    "messages": "",
+    "reactions": "",
+    "points": ""
   }
 }
