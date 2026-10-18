@@ -1,0 +1,28 @@
+---
+// "Not found" (GitHub Pages serves 404.html for any address that doesn't exist), XenForo's wording: a search box and
+// the way back, plus the newest posts.
+import Base from '../layouts/Base.astro';
+import { publishedPosts } from '../lib/posts';
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const href = (p: string) => (base + p).replace(/\/{2,}/g, '/') || '/';
+const latest = (await publishedPosts()).slice(0, 5);
+---
+<Base title="Page not found" noindex shownPosts={latest.map((p) => p.id)}>
+  <div class="page-head"><h1>Oops! We ran into some problems.</h1><p>The requested page could not be found.</p></div>
+  <div class="message privacy notfound">
+    <div class="prose">
+      <form class="nf-search" action={href('/search')} method="get" role="search">
+        <label class="sr" for="nf-q">Search posts</label>
+        <input id="nf-q" type="search" name="q" placeholder="Search posts…" autocomplete="off" />
+        <button class="save-btn" type="submit">Search</button>
+      </form>
+      {latest.length > 0 && (
+        <Fragment>
+          <h2>Latest posts</h2>
+          <ul>{latest.map((p) => <li><a href={href('/posts/' + p.id)}>{p.data.title}</a></li>)}</ul>
+        </Fragment>
+      )}
+      <p><a href={href('/')}>← Back to the forums</a></p>
+    </div>
+  </div>
+</Base>

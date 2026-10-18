@@ -1,0 +1,50 @@
+---
+// The vulnerability disclosure policy: how to report a security problem in this site, what's in scope, and the
+// promise not to go after good-faith research. /.well-known/security.txt and SECURITY.md (GitHub's "Security policy")
+// point here.
+import Base from '../layouts/Base.astro';
+import { SITE, API_URL } from '../config';
+const repo = process.env.GITHUB_REPOSITORY || 'obsec07/obsec07.github.io';
+const site = new URL(import.meta.env.BASE_URL, Astro.site);
+const report = `https://github.com/${repo}/security/advisories/new`;
+const apiHost = API_URL ? new URL(API_URL).host : '';
+---
+<Base title="Security policy" description={`How to report a security problem in ${site.host}.`}>
+  <div class="page-head"><h1>Security policy</h1><p>Found a vulnerability in this site? Thank you. Here's how to report it.</p></div>
+  <div class="message privacy">
+    <div class="prose">
+      <h2>Report it privately</h2>
+      <ul>
+        {SITE.email && <li>Email <a href={`mailto:${SITE.email}?subject=${encodeURIComponent(`Security: ${site.host}`)}`}>{SITE.email}</a>, or</li>}
+        <li>open a <a href={report} target="_blank" rel="noopener">private security advisory on GitHub</a> (only {SITE.handle} can see it).</li>
+      </ul>
+      <p>Please don't post it in a reply, a public issue or on social media before it's fixed. Include the page or address, the steps to reproduce it, what an attacker could do with it, and how to reach you. You'll usually hear back within a few days.</p>
+
+      <h2>In scope</h2>
+      <ul>
+        <li>This website, <code>{site.host}</code>, including the admin panel at <code>/admin</code>.</li>
+        {apiHost && <li>Its replies, likes and visitor-stats server, <code>{apiHost}</code>.</li>}
+        <li>The site's source code: <a href={`https://github.com/${repo}`} target="_blank" rel="noopener">github.com/{repo}</a>.</li>
+      </ul>
+
+      <h2>Out of scope</h2>
+      <ul>
+        <li>Denial of service, load or volume testing, and spam.</li>
+        <li>Phishing or social engineering of anyone, and anything physical.</li>
+        <li>Problems in GitHub, Cloudflare, Google Fonts or OpenStreetMap themselves: report those to them.</li>
+        <li>Missing headers or settings that GitHub Pages doesn't let a site change, self-XSS, and rate limits, unless you can show real impact.</li>
+      </ul>
+
+      <h2>Safe harbor</h2>
+      <p>If you act in good faith and follow this policy, your research is welcome here: {SITE.handle} won't take legal action or complain to your provider about it. That means:</p>
+      <ul>
+        <li>test with your own browser, guest cookie and replies; don't read, change or delete other visitors' data beyond the minimum needed to show the problem;</li>
+        <li>no automated scanning at high request rates;</li>
+        <li>give a reasonable time to fix it before you publish anything.</li>
+      </ul>
+      <p>There's no bug bounty, but you'll be thanked and, if you like, credited in the fix.</p>
+
+      <p class="muted-note">Machine-readable contact: <a href={new URL('.well-known/security.txt', site).pathname}>/.well-known/security.txt</a></p>
+    </div>
+  </div>
+</Base>

@@ -32,7 +32,8 @@ Your writeup in markdown. Code blocks are syntax-highlighted.
 ```
 It appears on the homepage, its category page (`/ctf`), and any `#tag` pages. Set `draft: true` to hide a
 work-in-progress. Optional:
-- `pinned: true` keeps the post at the top of its blog, with a pin (a sticky thread).
+- `pinned: true` puts the post in a **Pinned** box at the top of the home page and keeps it first in its
+  blog and on its tag pages, with a pin (a sticky thread).
 - `publishAt: 2026-10-01T09:00:00+05:30` schedules it. It stays off the site until then, and goes live by
   itself within the hour after that. The Pages workflow checks every hour and only rebuilds when a
   scheduled post is due. (GitHub pauses hourly jobs in a repo with no commits for 60 days; any commit, or
@@ -115,11 +116,16 @@ change on the token. Never paste the token anywhere else.
 - **Site**: site name, description, a home-page announcement, the name and description of each blog,
   and the Who Am I text (Markdown; `{handle}` becomes your username).
 - **Analytics**: visitors and page views over 24 hours / 7 / 30 / 90 days, who's online (updates itself),
-  your posts by all-time views (with the period's visitors, likes and replies), top pages, the sites
-  people came from, countries, cities, devices, browsers and operating systems. **Download CSV** saves
-  the period's visits for Excel / Google Sheets. Below that, every
-  visitor (one per guest cookie) with their IP address, location, network, device and what they read, and
-  the raw log of recent visits. You can block an IP from there.
+  a map of where visitors are, countries and cities, pages and your posts, the sites people came from, and
+  devices, browsers and systems. **Everything is clickable**: tap a country, a city (also on the map), a
+  page, a source or a device and every number, list, visitor and visit below shows only those, with a chip
+  on top to remove it. **Visitors** is one compact row per guest; tap one (or any line in **Recent visits**)
+  for everything about them: the city, region and postal code with coordinates and a small map, their time
+  zone, IP address and network, device, screen and language, where they came from, and every page they read.
+  From there you can show only that visitor or block their IP. **Download CSV** saves the visits you're
+  looking at (filters included), with postal codes and coordinates, for Excel / Google Sheets.
+  Locations come from the IP address (Cloudflare): usually right to the city or postal area, never a
+  street, and VPNs or mobile networks can show a nearby city instead.
 - **Comments**: every guest reply with its IP address and location, its likes, and which reply it
   answers. The tab shows how many are new or reported. **Reported** lists the replies guests reported,
   with their reasons: delete them, or **Keep it** to clear the reports. Delete replies, block an IP (and
@@ -210,6 +216,19 @@ docker run -p 8080:8080 -e ADMIN_PASSWORD='…' -v secblog-data:/app/data secblo
 > ephemeral disks, including Render's free plan, wipe them on every deploy or restart. Keep `DATA_DIR` on a
 > persistent disk or volume. Posts written in the admin panel are saved under `src/content/posts/` on the
 > server, not in git, so copy anything you want to keep into the repo.
+
+## Security
+- **Security policy:** `/security` (linked in the footer) says how to report a vulnerability, what's in scope
+  and promises no legal action for good-faith research. `/.well-known/security.txt` has the same contact in
+  the standard machine-readable form, and `SECURITY.md` is the repository's GitHub security policy. The
+  email is the contact address from `/admin` → Profile; reports can also go through GitHub's private
+  advisories (repo → Settings → Code security → **Private vulnerability reporting** must be on).
+- **Content-Security-Policy:** every page of the static site carries one (GitHub Pages can't send headers, so
+  it's a `<meta>` tag added at build time). Only the site's own scripts run, each inline one by its hash, and
+  the page can only talk to itself, the comments server and GitHub's API. `/admin` also refuses to show
+  inside another site's frame. The referrer policy is `strict-origin-when-cross-origin`.
+- Headers GitHub Pages doesn't let a site set (HSTS preload, frame-ancestors, Permissions-Policy) would need a
+  proxy such as Cloudflare in front of a custom domain.
 
 ## Tests
 ```bash

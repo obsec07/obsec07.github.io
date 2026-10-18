@@ -17,9 +17,7 @@ const desc = description || SITE.description;
 const canonical = new URL(Astro.url.pathname.replace(/\/index\.html$/, '/').replace(/\/?$/, '/'), Astro.site).href;
 const ownerPhoto = new URL(avatarUrl(SITE.handle), Astro.site).href;
 const previewImage = image ? new URL(image, Astro.site).href : ownerPhoto;
-const favicon = "data:image/svg+xml," + encodeURIComponent(
-  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path d='M10 1.5 C13 2.5 14 6 14 8.5 C14 12 11.5 15 8 15.5 C4.5 15 2 11.5 2 8.5 C2 5.5 4 2.5 7 2 C8 1.7 9 1.3 10 1.5 Z' fill='#6b7078' stroke='#22262b' stroke-width='.8'/><circle cx='6' cy='7' r='1.4' fill='#17191d'/><path d='M11 7.5 C12.4 7.5 13 9 12 10.2 C11 11 9.6 10.4 9.6 9 C9.6 8 10 7.5 11 7.5 Z' fill='#faf6f1'/></svg>"
-);
+const asset = (p: string) => (import.meta.env.BASE_URL.replace(/\/$/, '') + p).replace(/\/{2,}/g, '/');
 const rssHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/rss.xml').replace(/\/{2,}/g, '/');
 const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').replace(/\/{2,}/g, '/');
 const privacyHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/privacy').replace(/\/{2,}/g, '/');
@@ -30,6 +28,7 @@ const privacyHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/privacy').r
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
     <meta name="theme-color" content="#faf6f1" />
     <script is:inline>
       // light unless the visitor switched to dark (the Dark/Light button); set before anything is drawn, so no flash.
@@ -75,7 +74,10 @@ const privacyHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/privacy').r
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Roboto+Slab:wght@400;500;700&display=swap" rel="stylesheet" />
-    <link rel="icon" href={favicon} />
+    <link rel="icon" href={asset('/favicon.svg')} type="image/svg+xml" />
+    <link rel="icon" href={asset('/favicon.ico')} sizes="32x32" />
+    <link rel="apple-touch-icon" href={asset('/apple-touch-icon.png')} />
+    <link rel="manifest" href={asset('/site.webmanifest')} />
     <link rel="alternate" type="application/rss+xml" title={SITE.title} href={rssHref} />
   </head>
   <body data-api={API_URL || undefined}>
