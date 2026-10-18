@@ -35,7 +35,7 @@ const pageUrl = new URL(href('/'), Astro.site).href;
 const chevron = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 15 12 9 18 15"/></svg>';
 ---
 <Base shownPosts={[...pinned, ...recent, ...latestPosts].map((p) => p.id)}>
-  {SITE.banner && <div class="banner">{SITE.banner}</div>}
+  {SITE.banner && <div class="banner" role="note"><span class="banner-tag"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>Announcement</span><span>{SITE.banner}</span></div>}
 
   <div class="home-top">
     <button class="icon-btn" id="fs-btn" title="Toggle fullscreen" aria-label="fullscreen">
