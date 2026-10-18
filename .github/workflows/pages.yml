@@ -92,6 +92,7 @@ jobs:
           # where the site's pages find the comments API (empty: replies, likes and stats stay hidden)
           PUBLIC_API_URL: ${{ needs.api.outputs.url }}
           PUBLIC_API_STATE: ${{ needs.api.outputs.state }}
+      # v3 uploads hidden folders too: dist/.well-known/security.txt depends on it (v4 would leave it out)
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

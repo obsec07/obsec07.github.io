@@ -29,14 +29,14 @@ function h(tag: string, attrs: Row | null = null, ...kids: any[]) {
     if (v == null || v === false) continue;
     if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (k === 'dataset') Object.assign(e.dataset, v); else e.setAttribute(k, v === true ? '' : String(v));
   }
-  for (const c of kids.flat()) if (c != null && c !== false) e.append(c instanceof Node ? c : String(c));
+  for (const c of kids.flat(Infinity)) if (c != null && c !== false) e.append(c instanceof Node ? c : String(c));
   return e;
 }
 const svg = (tag: string, attrs: Row = {}) => { const e = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v)); return e; };
 
 export function initStats(o: Opts) {
   const $ = (id: string) => document.getElementById(id)!;
-  let onlyReported = false, days = 7, visitsCursor = 0, visitsFilter: { guest?: string; ip?: string; label?: string } = {}, commentsCursor = 0;
+  let onlyReported = false, days = 7, visitsCursor = 0, commentsCursor = 0;
   let titles: Record<string, string> | null = null;
 
   async function api(path: string, body?: object) {
@@ -57,11 +57,6 @@ export function initStats(o: Opts) {
     catch { titles = {}; }
     return titles!;
   }
-  // a link to a page of this site; anything else stored as a "path" (it comes from visitors) stays plain text
-  function pageLink(path: string, text: string, cls = '') {
-    try { const u = new URL(path, location.origin); if (u.origin === location.origin) return h('a', { href: u.pathname, target: '_blank', rel: 'noopener', class: cls || null }, text); } catch {}
-    return h('span', { class: cls || null }, text);
-  }
   // Each list is loaded by the newest request only: a tab switch, Refresh or Block while one is running used to
   // append the same rows twice. fresh loads bump the counter; "Show more" checks it didn't move meanwhile.
   const seq = { stats: 0, visitors: 0, visits: 0, comments: 0, posts: 0 };
@@ -81,23 +76,64 @@ export function initStats(o: Opts) {
   }
   const cleanTitle = (t: string | null, path: string) => (t ? t.replace(new RegExp(`\\s·\\s${o.handle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`), '') : path);
 
+  // ---------- filters: click a country, city, page, source or device and every number below follows ----------
+  // Each chip is one filter (kind: what was clicked); a newer chip of the same kind replaces the old one.
+  type Chip = { kind: string; label: string; params: Record<string, string> };
+  let chips: Chip[] = [];
+  const params = () => Object.assign({}, ...chips.map((c) => c.params)) as Record<string, string>;
+  const KINDS: Record<string, string> = { country: 'country', city: 'place', path: 'page', ref: 'came from', device: 'device', browser: 'browser', os: 'system', guest: 'visitor', ip: 'visitor' };
+  function addFilter(c: Chip) {
+    // a city in another country than the country chip: the country chip goes (they'd never match together)
+    chips = chips.filter((x) => x.kind !== c.kind && !(c.kind === 'city' && x.kind === 'country' && x.params.country !== c.params.country)
+      && !(c.kind === 'country' && x.kind === 'city' && x.params.country !== c.params.country));
+    chips.push(c); filtersChanged();
+    $('st-pane').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  function removeFilter(kind?: string) { chips = kind ? chips.filter((x) => x.kind !== kind) : []; filtersChanged(); }
+  function renderChips() {
+    $('st-chips').replaceChildren(...(chips.length ? [
+      h('span', { class: 'st-chips-label' }, 'Showing only:'),
+      ...chips.map((c) => h('button', { type: 'button', class: 'st-chip', title: `Remove this filter (${KINDS[c.kind] || c.kind})`, onclick: () => removeFilter(c.kind) }, c.label, h('span', { 'aria-hidden': 'true' }, ' ×'))),
+      ...(chips.length > 1 ? [h('button', { type: 'button', class: 'st-chip st-chip-clear', onclick: () => removeFilter() }, 'Clear all')] : []),
+    ] : [h('span', { class: 'st-chips-label' }, 'Tip: tap any country, city, page, source or device to see only those visitors.')]));
+  }
+  function filtersChanged() { renderChips(); loadStats(); loadPostStats(); loadVisitors(true); loadVisits(true); }
+  // the query for the API: period, the admin's time zone (for the daily chart) and the filters
+  const query = (extra: Record<string, string> = {}) => new URLSearchParams({ days: String(days), ...params(), ...extra }).toString();
+  const placeName = (r: Row) => [r.city, r.region && r.region !== r.city ? r.region : null].filter(Boolean).join(', ') || 'Unknown place';
+  const chipFor = {
+    country: (r: Row): Chip => ({ kind: 'country', label: `${flag(r.country)} ${country(r.country)}`, params: { country: r.country || '-' } }),
+    city: (r: Row): Chip => ({ kind: 'city', label: `${flag(r.country)} ${placeName(r)}`, params: { country: r.country || '-', region: r.region || '-', city: r.city || '-' } }),
+    page: (r: Row): Chip => ({ kind: 'path', label: `Page: ${cleanTitle(r.title, r.path)}`, params: { path: r.path } }),
+    ref: (r: Row): Chip => ({ kind: 'ref', label: r.ref_host ? `From ${r.ref_host}` : 'Direct visits', params: { ref: r.ref_host || '-' } }),
+    device: (r: Row): Chip => ({ kind: 'device', label: r.device || 'Unknown device', params: { device: r.device || '-' } }),
+    browser: (r: Row): Chip => ({ kind: 'browser', label: r.browser || 'Unknown browser', params: { browser: r.browser || '-' } }),
+    os: (r: Row): Chip => ({ kind: 'os', label: r.os || 'Unknown system', params: { os: r.os || '-' } }),
+    visitor: (v: Row): Chip => (v.guest ? { kind: 'guest', label: `Visitor: ${who(v)}`, params: { guest: v.guest } } : { kind: 'ip', label: `Visitor: ${v.ip}`, params: { ip: v.ip } }),
+  };
+  const who = (v: Row) => v.name || (v.guest ? `Guest ${v.guest.slice(0, 6)}` : v.ip || 'Unknown visitor');
+  const isOnline = (ts: number) => Date.now() - ts < 5 * 60e3;
+
   // ---------- overview ----------
   async function loadStats() {
     const body = $('st-body'), my = ++seq.stats; body.classList.add('st-loading'); $('st-err').hidden = true;
     try {
-      const s = await api(`/admin/stats?days=${days}&tz=${tzSegments(Date.now() - (days + 1) * DAY, Date.now())}`);
+      const s = await api(`/admin/stats?${query({ tz: tzSegments(Date.now() - (days + 1) * DAY, Date.now()) })}`);
       if (my !== seq.stats) return;
-      renderKpis(s); renderChart(s); renderTops(s);
+      renderKpis(s); renderChart(s); renderTops(s); renderMap(s.places || []);
       $('st-bots').textContent = s.bots ? `${num(s.bots)} visit${s.bots === 1 ? '' : 's'} by bots and crawlers left out.` : '';
     } catch (x) { if (my === seq.stats) fail('st-err', x); }
     finally { if (my === seq.stats) body.classList.remove('st-loading'); }
   }
   function renderKpis(s: Row) {
-    const tile = (label: string, value: number, note = '', id = '') => h('div', { class: 'st-kpi' }, h('div', { class: 'st-kpi-label' }, label), h('div', { class: 'st-kpi-value', id: id || null }, num(value)), note ? h('div', { class: 'st-kpi-note' }, note) : null);
     const per = days === 1 ? 'last 24 hours' : `last ${days} days`;
+    const tile = (label: string, value: number, note: string, id = '', onclick: ((e: Event) => void) | null = null) =>
+      h(onclick ? 'button' : 'div', { class: `st-kpi${onclick ? ' st-kpi-btn' : ''}`, type: onclick ? 'button' : null, onclick },
+        h('div', { class: 'st-kpi-label' }, label), h('div', { class: 'st-kpi-value', id: id || null }, num(value)), h('div', { class: 'st-kpi-note' }, note));
     $('st-kpis').replaceChildren(
       tile('Visitors', s.visitors, per), tile('Page views', s.views, per),
-      tile('Online now', s.live, 'last 5 minutes', 'st-live'), tile('Replies', s.comments, 'from guests'), tile('Likes', s.likes, per),
+      tile('Online now', s.live, 'tap to see who', 'st-live', () => { setWho('online'); $('st-visitors-card').scrollIntoView({ behavior: 'smooth', block: 'start' }); }),
+      tile('Replies', s.comments, per), tile('Likes', s.likes, per),
     );
   }
 
@@ -187,106 +223,235 @@ export function initStats(o: Opts) {
   let resizeT = 0;
   window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = window.setTimeout(() => { if (lastSeries.length && !$('st-chart').closest('[hidden]')) drawChart(); }, 150); });
 
-  // top lists: one bar per row, one colour (it's magnitude, not identity); value in text next to it
-  function bars(id: string, rows: Row[], label: (r: Row) => (Node | string)[], value = (r: Row) => r.visitors, empty = 'Nothing yet.') {
-    const max = Math.max(1, ...rows.map(value));
-    $(id).replaceChildren(rows.length
-      ? h('ol', { class: 'st-bars' }, rows.map((r) => h('li', { title: `${num(r.visitors)} visitor${r.visitors === 1 ? '' : 's'} · ${num(r.views)} page view${r.views === 1 ? '' : 's'}` },
-          h('div', { class: 'st-bar-top' }, h('span', { class: 'st-bar-label' }, ...label(r)), h('span', { class: 'st-bar-n' }, num(value(r)))),
-          h('div', { class: 'st-bar-track' }, h('span', { class: 'st-bar', style: `width:${Math.max(2, (value(r) / max) * 100)}%` })))))
-      : h('p', { class: 'st-empty' }, empty));
+  // ---------- top lists: one bar per row, one colour (magnitude); the whole row is a button that filters ----------
+  const SHOW = 8;   // rows before "Show all"
+  function bars(id: string, rows: Row[], o2: { label: (r: Row) => (Node | string)[]; value?: (r: Row) => number; chip?: (r: Row) => Chip; open?: (r: Row) => string | null; empty?: string; unit?: string }) {
+    const value = o2.value || ((r: Row) => r.visitors), max = Math.max(1, ...rows.map(value)), unit = o2.unit || 'visitors';
+    const box = $(id);
+    if (!rows.length) { box.replaceChildren(h('p', { class: 'st-empty' }, o2.empty || 'Nothing yet.')); return; }
+    const active = new Set(chips.map((c) => JSON.stringify(c.params)));
+    const li = (r: Row, i: number) => {
+      const c = o2.chip ? o2.chip(r) : null, on = c && active.has(JSON.stringify(c.params));
+      const inner = [h('span', { class: 'st-bar-top' }, h('span', { class: 'st-bar-label' }, ...o2.label(r)), h('span', { class: 'st-bar-n' }, num(value(r)))),
+        h('span', { class: 'st-bar-track' }, h('span', { class: 'st-bar', style: `width:${Math.max(2, (value(r) / max) * 100)}%` }))];
+      const title = `${num(r.visitors)} visitor${r.visitors === 1 ? '' : 's'} · ${num(r.views)} page view${r.views === 1 ? '' : 's'}${c && !on ? ' · tap to see only these' : ''}`;
+      const href = o2.open ? o2.open(r) : null;
+      return h('li', { class: i >= SHOW ? 'st-more-row' : null, hidden: i >= SHOW },
+        c ? h('button', { type: 'button', class: `st-row${on ? ' on' : ''}`, title, 'aria-pressed': on ? 'true' : 'false', onclick: () => (on ? removeFilter(c.kind) : addFilter(c)) }, ...inner)
+          : h('div', { class: 'st-row', title }, ...inner),
+        href ? h('a', { class: 'st-open', href, target: '_blank', rel: 'noopener', title: 'Open the page', 'aria-label': 'Open the page' }, '↗') : null);
+    };
+    const list = h('ol', { class: 'st-bars' }, rows.map(li));
+    const more = rows.length > SHOW ? h('button', { type: 'button', class: 'st-link', onclick: (e: Event) => {
+      const open = list.classList.toggle('st-all');
+      list.querySelectorAll<HTMLElement>('.st-more-row').forEach((x) => { x.hidden = !open; });
+      (e.currentTarget as HTMLElement).textContent = open ? 'Show fewer' : `Show all ${rows.length}`;
+    } }, `Show all ${rows.length}`) : null;
+    box.replaceChildren(h('div', { class: 'st-list-head' }, h('span', null, ''), h('span', { class: 'st-unit' }, unit)), list, more || '');
   }
+  const sitePath = (path: string) => { try { const u = new URL(path, location.origin); return u.origin === location.origin ? u.pathname : null; } catch { return null; } };
   function renderTops(s: Row) {
-    bars('st-pages', s.pages, (r) => [pageLink(r.path, cleanTitle(r.title, r.path)), h('span', { class: 'st-sub' }, r.path)], (r) => r.views);
-    bars('st-refs', s.referrers, (r) => [r.ref_host], undefined, 'No visits from other sites yet.');
-    bars('st-countries', s.countries, (r) => [`${flag(r.country)} ${country(r.country)}`]);
-    bars('st-cities', s.cities, (r) => [`${flag(r.country)} ${[r.city, r.region && r.region !== r.city ? r.region : null].filter(Boolean).join(', ')}`, h('span', { class: 'st-sub' }, country(r.country))]);
-    bars('st-devices', s.devices, (r) => [r.device || 'Unknown']);
-    bars('st-browsers', s.browsers, (r) => [r.browser || 'Unknown']);
-    bars('st-os', s.os, (r) => [r.os || 'Unknown']);
+    bars('st-pages', s.pages, { label: (r) => [cleanTitle(r.title, r.path), h('span', { class: 'st-sub' }, r.path)], value: (r) => r.views, unit: 'page views', chip: chipFor.page, open: (r) => sitePath(r.path) });
+    bars('st-refs', s.referrers, { label: (r) => [r.ref_host || 'Direct or unknown', r.ref_host ? null : h('span', { class: 'st-sub' }, 'typed in, a bookmark or an app')], chip: chipFor.ref, empty: 'No visits yet.' });
+    bars('st-countries', s.countries, { label: (r) => [`${flag(r.country)} ${country(r.country)}`], chip: chipFor.country });
+    bars('st-cities', s.cities, { label: (r) => [`${flag(r.country)} ${placeName(r)}`, h('span', { class: 'st-sub' }, country(r.country))], chip: chipFor.city });
+    bars('st-devices', s.devices, { label: (r) => [r.device || 'Unknown'], chip: chipFor.device });
+    bars('st-browsers', s.browsers, { label: (r) => [r.browser || 'Unknown'], chip: chipFor.browser });
+    bars('st-os', s.os, { label: (r) => [r.os || 'Unknown'], chip: chipFor.os });
   }
+
+  // ---------- the map: OpenStreetMap tiles (Leaflet, loaded only here), one circle per place ----------
+  type LeafletNS = typeof import('leaflet');
+  let L: LeafletNS | null = null, map: import('leaflet').Map | null = null, pins: import('leaflet').LayerGroup | null = null, lastPlaces: Row[] = [];
+  async function leaflet() {
+    if (!L) { const [m] = await Promise.all([import('leaflet'), import('leaflet/dist/leaflet.css')]); L = (m as any).default || m; }
+    return L!;
+  }
+  const cssVar = (n: string, d: string) => getComputedStyle(document.documentElement).getPropertyValue(n).trim() || d;
+  function tiles(Lf: LeafletNS) {
+    return Lf.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' });
+  }
+  async function renderMap(places: Row[]) {
+    lastPlaces = places;
+    const box = $('st-map');
+    if (box.closest('[hidden]')) return;   // drawn when its tab opens
+    let Lf: LeafletNS;
+    try { Lf = await leaflet(); } catch { box.replaceChildren(h('p', { class: 'st-empty' }, "The map couldn't load. The Countries and Cities tabs have the same places.")); return; }
+    if (!map) {
+      map = Lf.map(box, { worldCopyJump: true, scrollWheelZoom: false, zoomSnap: 0.5 }).setView([20, 10], 1.5);
+      tiles(Lf).addTo(map); pins = Lf.layerGroup().addTo(map);
+    }
+    map.invalidateSize();
+    pins!.clearLayers();
+    const max = Math.max(1, ...places.map((p) => p.visitors)), fill = cssVar('--viz-1', '#2a6fdb'), ring = cssVar('--card', '#fff');
+    // biggest first, so small places stay on top and clickable
+    for (const p of [...places].sort((a, b) => b.visitors - a.visitors)) {
+      const m = Lf.circleMarker([p.lat, p.lon], { radius: 6 + 14 * Math.sqrt(p.visitors / max), color: ring, weight: 2, fillColor: fill, fillOpacity: 0.78 });
+      m.bindTooltip(h('div', { class: 'st-pin-tip' }, h('b', null, `${flag(p.country)} ${placeName(p)}`), h('div', null, country(p.country)),
+        h('div', null, `${num(p.visitors)} visitor${p.visitors === 1 ? '' : 's'} · ${num(p.views)} page view${p.views === 1 ? '' : 's'}`)), { direction: 'top', offset: [0, -6] });
+      m.on('click', () => addFilter(chipFor.city(p)));
+      pins!.addLayer(m);
+    }
+    if (places.length) map.fitBounds(Lf.latLngBounds(places.map((p) => [p.lat, p.lon] as [number, number])).pad(0.4), { maxZoom: chips.some((c) => c.kind === 'city') ? 9 : 5 });
+    else map.setView([20, 10], 1.5);
+  }
+  // tabs inside a card (Map / Countries / Cities, Top pages / Your posts, …)
+  document.querySelectorAll<HTMLElement>('#st-pane .st-tabs').forEach((tabs) => tabs.addEventListener('click', (e) => {
+    const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-show]'); if (!b) return;
+    tabs.querySelectorAll<HTMLButtonElement>('button[data-show]').forEach((x) => { x.setAttribute('aria-selected', String(x === b)); $(x.dataset.show!).hidden = x !== b; });
+    if (b.dataset.show === 'st-map-box') renderMap(lastPlaces);
+  }));
 
   // ---------- your posts: all-time views, and this period's visitors, likes and replies ----------
   async function loadPostStats() {
     const my = ++seq.posts;
     try {
-      const [{ posts }, t] = await Promise.all([api(`/admin/posts?days=${days}`), postTitles()]);
+      const [{ posts }, t] = await Promise.all([api(`/admin/posts?${query()}`), postTitles()]);
       if (my !== seq.posts) return;
       const list = posts.filter((p: Row) => t[p.post]);   // posts still on the site
-      const max = Math.max(1, ...list.map((p: Row) => p.views));
       const per = days === 1 ? '24 hours' : `${days} days`;
-      $('st-posts').replaceChildren(list.length
-        ? h('ol', { class: 'st-bars' }, list.map((p: Row) => h('li', null,
-            h('div', { class: 'st-bar-top' },
-              h('span', { class: 'st-bar-label' }, pageLink(`${o.base}/posts/${p.post}/`, t[p.post]),
-                h('span', { class: 'st-sub' }, `${num(p.visitors)} visitor${p.visitors === 1 ? '' : 's'} in ${per} · ${num(p.likes)} like${p.likes === 1 ? '' : 's'} · ${num(p.replies)} repl${p.replies === 1 ? 'y' : 'ies'}`)),
-              h('span', { class: 'st-bar-n' }, num(p.views))),
-            h('div', { class: 'st-bar-track' }, h('span', { class: 'st-bar', style: `width:${Math.max(2, (p.views / max) * 100)}%` })))))
-        : h('p', { class: 'st-empty' }, 'No post views yet.'));
+      bars('st-posts', list, {
+        label: (p) => [t[p.post], h('span', { class: 'st-sub' }, `${num(p.visitors)} visitor${p.visitors === 1 ? '' : 's'} in ${per} · ${num(p.likes)} like${p.likes === 1 ? '' : 's'} · ${num(p.replies)} repl${p.replies === 1 ? 'y' : 'ies'}`)],
+        value: (p) => p.views, unit: 'views, all time', empty: 'No post views yet.',
+        chip: (p) => ({ kind: 'path', label: `Page: ${t[p.post]}`, params: { path: `${o.base}/posts/${p.post}/` } }), open: (p) => `${o.base}/posts/${p.post}/`,
+      });
     } catch (x) { if (my === seq.posts) $('st-posts').replaceChildren(h('p', { class: 'st-empty' }, (x as Error).message)); }
   }
 
-  // ---------- visitors (one row per guest cookie) ----------
-  async function loadVisitors() {
+  // ---------- visitors (one row per guest cookie): compact rows; tap one for everything about them ----------
+  let whoMode: 'all' | 'online' = 'all', visitorRows: Row[] = [], visitorsShown = 0;
+  function setWho(m: 'all' | 'online') {
+    whoMode = m;
+    document.querySelectorAll('#st-visitors-card [data-who]').forEach((x) => x.setAttribute('aria-selected', String((x as HTMLElement).dataset.who === m)));
+    loadVisitors(true);
+  }
+  async function loadVisitors(fresh = true) {
     const my = ++seq.visitors; $('st-visitors-err').hidden = true;
     try {
-      const { visitors } = await api(`/admin/visitors?days=${days}`);
+      const { visitors } = await api(`/admin/visitors?${query({ limit: '300', ...(whoMode === 'online' ? { online: '1' } : {}) })}`);
       if (my !== seq.visitors) return;
-      $('st-visitors').replaceChildren(visitors.length ? h('ul', { class: 'st-people' }, visitors.map(person)) : h('p', { class: 'st-empty' }, 'No visitors yet.'));
+      visitorRows = visitors; visitorsShown = 0;
+      $('st-visitors-n').textContent = visitors.length ? `${num(visitors.length)}${visitors.length >= 300 ? '+' : ''}` : '';
+      $('st-visitors').replaceChildren(visitors.length ? h('ul', { class: 'st-people' }) : h('p', { class: 'st-empty' }, whoMode === 'online' ? 'Nobody in the last 5 minutes.' : 'No visitors yet.'));
+      moreVisitors();
     } catch (x) { if (my === seq.visitors) fail('st-visitors-err', x); }
   }
-  function person(v: Row) {
-    const name = v.name || (v.guest ? `Guest ${v.guest.slice(0, 6)}` : 'No cookie');
-    return h('li', { class: 'st-person' },
-      h('div', { class: 'st-person-top' },
-        h('b', null, name), v.name ? h('span', { class: 'st-tag' }, 'replied') : null, v.blocked ? h('span', { class: 'st-tag bad' }, 'blocked') : null,
-        h('span', { class: 'st-when', title: when(v.last) }, `last seen ${ago(v.last)}`)),
-      h('div', { class: 'st-line1' }, `${flag(v.country)} ${place(v)}`),
-      h('div', { class: 'st-line2' }, h('code', { class: 'st-ip' }, v.ip || 'no IP'), v.org ? ` · ${v.org}` : '', ` · ${[v.device, v.os, v.browser].filter(Boolean).join(' · ')}`),
-      h('div', { class: 'st-line2' }, `${num(v.views)} page view${v.views === 1 ? '' : 's'} · ${num(v.pages)} page${v.pages === 1 ? '' : 's'} · first seen ${ago(v.first)}`,
-        v.comments ? ` · ${v.comments} repl${v.comments === 1 ? 'y' : 'ies'}` : '', v.likes ? ` · ${v.likes} like${v.likes === 1 ? '' : 's'}` : ''),
-      h('div', { class: 'st-acts' },
-        h('button', { type: 'button', class: 'st-btn', onclick: () => filterVisits(v.guest ? { guest: v.guest, label: name } : { ip: v.ip, label: v.ip }) }, 'Their visits'),
-        v.ip ? blockButton(v.ip, v.blocked) : null));
+  function moreVisitors() {
+    const ul = $('st-visitors').querySelector('ul'), next = visitorRows.slice(visitorsShown, visitorsShown + 15);
+    if (ul) next.forEach((v) => ul.append(h('li', null, personRow(v))));
+    visitorsShown += next.length;
+    $('st-visitors-more').hidden = visitorsShown >= visitorRows.length;
+  }
+  function personRow(v: Row) {
+    return h('button', { type: 'button', class: 'st-who', onclick: () => openPanel(v) },
+      h('span', { class: 'st-who-flag', 'aria-hidden': 'true' }, flag(v.country)),
+      h('span', { class: 'st-who-main' },
+        h('span', { class: 'st-who-name' }, h('b', null, who(v)), isOnline(v.last) ? h('span', { class: 'st-tag ok' }, 'online') : null,
+          v.name ? h('span', { class: 'st-tag' }, 'replied') : null, v.blocked ? h('span', { class: 'st-tag bad' }, 'blocked') : null),
+        h('span', { class: 'st-sub' }, [placeName(v), country(v.country)].join(', '), ' · ', [v.device, v.browser].filter(Boolean).join(' · ') || 'Unknown device')),
+      h('span', { class: 'st-who-meta' }, h('span', null, h('b', null, num(v.views)), ` view${v.views === 1 ? '' : 's'}`), h('span', { class: 'st-sub', title: when(v.last) }, ago(v.last))),
+      h('span', { class: 'st-chev', 'aria-hidden': 'true' }, '›'));
   }
 
-  // ---------- recent visits (the raw log, newest first) ----------
-  function filterVisits(f: typeof visitsFilter) {
-    visitsFilter = f; loadVisits(true);
-    $('st-visits-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
+  // ---------- recent visits (the raw log, newest first): one line each; tap for the visitor ----------
   async function loadVisits(fresh = false) {
     const my = fresh ? ++seq.visits : seq.visits, more = $('st-visits-more') as HTMLButtonElement;
     if (fresh) visitsCursor = 0; else more.disabled = true;
     $('st-visits-err').hidden = true;
-    const f = visitsFilter, q = new URLSearchParams({ limit: '40' });
-    if (visitsCursor) q.set('before', String(visitsCursor));
-    if (f.guest) q.set('guest', f.guest); if (f.ip) q.set('ip', f.ip);
-    $('st-visits-filter').replaceChildren(f.label ? h('button', { type: 'button', class: 'st-chip', onclick: () => { visitsFilter = {}; loadVisits(true); } }, `Only ${f.label} ×`) : '');
     try {
-      const { visits } = await api(`/admin/visits?${q}`);
+      const { visits } = await api(`/admin/visits?${query({ limit: '30', ...(visitsCursor ? { before: String(visitsCursor) } : {}) })}`);
       if (my !== seq.visits) return;   // a newer load took over
       if (fresh) $('st-visits').replaceChildren();
       const list = $('st-visits').querySelector('ul') || $('st-visits').appendChild(h('ul', { class: 'st-log' }));
-      visits.forEach((v: Row) => list.append(h('li', { class: 'st-visit' },
-        h('div', { class: 'st-person-top' },
-          pageLink(v.path, cleanTitle(v.title, v.path), 'st-page'),
-          h('span', { class: 'st-when', title: when(v.ts) }, ago(v.ts))),
-        h('div', { class: 'st-line1' }, `${flag(v.country)} ${place(v)}`, v.timezone ? h('span', { class: 'st-sub' }, ` · ${v.timezone}`) : ''),
-        h('div', { class: 'st-line2' }, h('code', { class: 'st-ip' }, v.ip || 'no IP'), v.org ? ` · ${v.org}` : '', v.asn ? ` (AS${v.asn})` : '', ` · ${[v.device, v.os, v.browser].filter(Boolean).join(' · ')}`, v.screen ? ` · ${v.screen}` : '', v.lang ? ` · ${v.lang}` : ''),
-        h('div', { class: 'st-line2' }, v.name ? h('b', null, v.name) : `Guest ${v.guest ? v.guest.slice(0, 6) : '(no cookie)'}`, v.referrer ? ` · came from ${v.referrer}` : '', v.blocked ? h('span', { class: 'st-tag bad' }, 'blocked') : ''),
-        h('div', { class: 'st-acts' },
-          !f.label && (v.guest || v.ip) ? h('button', { type: 'button', class: 'st-btn', onclick: () => filterVisits(v.guest ? { guest: v.guest, label: v.name || `Guest ${v.guest.slice(0, 6)}` } : { ip: v.ip, label: v.ip }) }, 'Their visits') : null,
-          v.ip ? blockButton(v.ip, v.blocked) : null))));
+      visits.forEach((v: Row) => list.append(h('li', null, h('button', { type: 'button', class: 'st-hit', onclick: () => openPanel(v, v) },
+        h('span', { class: 'st-hit-when', title: when(v.ts) }, ago(v.ts)),
+        h('span', { class: 'st-hit-main' }, h('span', { class: 'st-hit-page' }, cleanTitle(v.title, v.path)),
+          h('span', { class: 'st-sub' }, `${flag(v.country)} ${placeName(v)} · ${who(v)} · ${[v.device, v.browser].filter(Boolean).join(' · ')}`, v.ref_host ? ` · from ${v.ref_host}` : '')),
+        h('span', { class: 'st-chev', 'aria-hidden': 'true' }, '›')))));
       if (!list.children.length) $('st-visits').replaceChildren(h('p', { class: 'st-empty' }, 'No visits yet.'));
       visitsCursor = visits.length ? visits[visits.length - 1].id : visitsCursor;
-      more.hidden = visits.length < 40;
+      more.hidden = visits.length < 30;
     } catch (x) { if (my === seq.visits) fail('st-visits-err', x); }
     finally { more.disabled = false; }
   }
 
+  // ---------- one visitor: where, network, device, activity, every page; filter or block from here ----------
+  let panelMap: import('leaflet').Map | null = null;
+  async function openPanel(row: Row, visit: Row | null = null) {
+    const d = $('st-panel') as HTMLDialogElement;
+    const key: Record<string, string> | null = row.guest ? { guest: row.guest } : row.ip ? { ip: row.ip } : null;
+    const close = h('button', { type: 'button', class: 'st-panel-x', 'aria-label': 'Close', onclick: () => d.close() }, '×');
+    d.replaceChildren(h('div', { class: 'st-panel-head' }, h('h3', { id: 'st-panel-title' }, `${flag(row.country)} ${who(row)}`), close), h('p', { class: 'st-empty' }, 'Loading…'));
+    if (!d.open) d.showModal();
+    let v = row, hist: Row[] = [];
+    try {
+      if (key) {
+        const [a, b] = await Promise.all([api(`/admin/visitors?${new URLSearchParams({ days: '90', limit: '1', ...key })}`), api(`/admin/visits?${new URLSearchParams({ limit: '50', ...key })}`)]);
+        v = { ...row, ...(a.visitors[0] || {}) }; hist = b.visits;
+      }
+    } catch (x) { d.replaceChildren(h('div', { class: 'st-panel-head' }, h('h3', { id: 'st-panel-title' }, who(row)), close), h('p', { class: 'st-empty' }, (x as Error).message)); return; }
+    if (!d.open) return;   // closed while loading
+    const at = visit || v;   // where they were on this visit (or their latest)
+    const dl = (pairs: [string, any][]) => h('dl', { class: 'st-dl' }, pairs.filter(([, x]) => x != null && x !== '').map(([k, x]) => [h('dt', null, k), h('dd', null, x)]));
+    const hasXY = typeof at.lat === 'number' && typeof at.lon === 'number';
+    const osm = hasXY ? `https://www.openstreetmap.org/?mlat=${at.lat}&mlon=${at.lon}#map=12/${at.lat}/${at.lon}` : null;
+    let localTime = '';
+    if (at.timezone) { try { localTime = new Date().toLocaleTimeString('en-US', { timeZone: at.timezone, hour: 'numeric', minute: '2-digit' }); } catch {} }
+    const copy = (text: string) => h('button', { type: 'button', class: 'st-link', onclick: async (e: Event) => { const b = e.currentTarget as HTMLElement; try { await navigator.clipboard.writeText(text); b.textContent = 'Copied'; } catch { b.textContent = 'Select and copy'; } } }, 'Copy');
+    d.replaceChildren(
+      h('div', { class: 'st-panel-head' },
+        h('h3', { id: 'st-panel-title' }, `${flag(at.country)} ${who(v)}`, isOnline(v.last) ? h('span', { class: 'st-tag ok' }, 'online now') : null, v.blocked ? h('span', { class: 'st-tag bad' }, 'blocked') : null),
+        close),
+      h('section', null, h('h4', null, visit ? 'Where they were on this visit' : 'Where they are'),
+        hasXY ? h('div', { class: 'st-panel-map', id: 'st-panel-map' }) : null,
+        dl([
+          ['Place', [at.city, at.region && at.region !== at.city ? at.region : null, at.postal].filter(Boolean).join(', ') || 'Unknown'],
+          ['Country', `${flag(at.country)} ${country(at.country)}`],
+          ['Coordinates', hasXY ? [h('code', null, `${at.lat.toFixed(4)}, ${at.lon.toFixed(4)}`), ' ', h('a', { href: osm!, target: '_blank', rel: 'noopener' }, 'Open map ↗')] : null],
+          ['Time zone', at.timezone ? `${at.timezone}${localTime ? ` (their time now: ${localTime})` : ''}` : null],
+        ]),
+        h('p', { class: 'st-note' }, "From the IP address: usually the right city or postal area, not a street. VPNs and mobile networks can show a nearby city instead.")),
+      h('section', null, h('h4', null, 'Network'), dl([
+        ['IP address', at.ip ? [h('code', { class: 'st-ip' }, at.ip), ' ', copy(at.ip)] : 'Not recorded'],
+        ['Provider', at.org ? `${at.org}${at.asn ? ` (AS${at.asn})` : ''}` : at.asn ? `AS${at.asn}` : null],
+      ])),
+      h('section', null, h('h4', null, 'Device'), dl([
+        ['Type', at.device], ['System', at.os], ['Browser', at.browser], ['Screen', at.screen], ['Language', at.lang],
+      ])),
+      h('section', null, h('h4', null, 'Activity'), dl([
+        ['First seen', v.first ? `${when(v.first)} (${ago(v.first)})` : null], ['Last seen', v.last ? `${when(v.last)} (${ago(v.last)})` : null],
+        ['Page views', v.views != null ? `${num(v.views)} on ${num(v.pages)} page${v.pages === 1 ? '' : 's'} (last 90 days)` : null],
+        ['Came from', v.referrer || (visit && visit.referrer) || 'Direct or unknown'],
+        ['Replies', v.comments ? `${num(v.comments)}${v.name ? ` as “${v.name}”` : ''}` : null], ['Likes', v.likes ? num(v.likes) : null],
+        ['Guest id', v.guest ? h('code', null, v.guest) : 'No cookie (counted by IP)'],
+      ])),
+      h('section', null, h('h4', null, `Pages they read${hist.length >= 50 ? ' (latest 50)' : ''}`),
+        hist.length ? h('ol', { class: 'st-trail' }, hist.map((x) => h('li', null, h('span', { class: 'st-sub', title: when(x.ts) }, ago(x.ts)), ' ',
+          sitePath(x.path) ? h('a', { href: sitePath(x.path)!, target: '_blank', rel: 'noopener' }, cleanTitle(x.title, x.path)) : cleanTitle(x.title, x.path),
+          x.ref_host ? h('span', { class: 'st-sub' }, ` · from ${x.ref_host}`) : null, x.city && x.city !== at.city ? h('span', { class: 'st-sub' }, ` · ${flag(x.country)} ${x.city}`) : null)))
+          : h('p', { class: 'st-empty' }, 'No visits recorded.')),
+      h('div', { class: 'st-acts' },
+        key ? h('button', { type: 'button', class: 'st-btn', onclick: () => { d.close(); addFilter(chipFor.visitor(v)); } }, 'Show only this visitor') : null,
+        at.ip ? blockButton(at.ip, !!v.blocked, () => d.close()) : null));
+    if (hasXY) {
+      try {
+        const Lf = await leaflet();
+        if (!d.open) return;
+        panelMap?.remove();
+        panelMap = Lf.map($('st-panel-map'), { scrollWheelZoom: false, zoomControl: true, attributionControl: true }).setView([at.lat, at.lon], 10);
+        tiles(Lf).addTo(panelMap);
+        // a circle, not a pin: the place is an area (about 5 km around Cloudflare's point)
+        Lf.circle([at.lat, at.lon], { radius: 5000, color: cssVar('--viz-1', '#2a6fdb'), weight: 2, fillOpacity: 0.15 }).addTo(panelMap);
+        Lf.circleMarker([at.lat, at.lon], { radius: 5, color: cssVar('--card', '#fff'), weight: 2, fillColor: cssVar('--viz-1', '#2a6fdb'), fillOpacity: 1 }).addTo(panelMap);
+      } catch { $('st-panel-map').replaceChildren(h('p', { class: 'st-empty' }, "The map couldn't load.")); }
+    }
+  }
+  ($('st-panel') as HTMLDialogElement).addEventListener('close', () => { panelMap?.remove(); panelMap = null; });
+  // a tap on the dimmed area outside the panel closes it
+  $('st-panel').addEventListener('click', (e) => { if (e.target === e.currentTarget) ($('st-panel') as HTMLDialogElement).close(); });
+
   // ---------- blocking ----------
-  function blockButton(ip: string, blocked: boolean) {
+  function blockButton(ip: string, blocked: boolean, after: (() => void) | null = null) {
     return h('button', { type: 'button', class: `st-btn${blocked ? '' : ' danger'}`, onclick: async (e: Event) => {
       const b = e.currentTarget as HTMLButtonElement;
       try {
@@ -296,6 +461,7 @@ export function initStats(o: Opts) {
           const purge = confirm(`Also delete every reply sent from ${ip}?`);
           b.disabled = true; await api('/admin/blocks', { ip, purge });
         }
+        if (after) after();
         refreshAll();
       } catch (x) { alert((x as Error).message); b.disabled = false; }
     } }, blocked ? 'Unblock IP' : 'Block IP');
@@ -345,7 +511,7 @@ export function initStats(o: Opts) {
   }
 
   function refreshAll() {
-    if (!$('st-pane').hidden) { loadStats(); loadPostStats(); loadVisitors(); loadVisits(true); }
+    if (!$('st-pane').hidden) { renderChips(); loadStats(); loadPostStats(); loadVisitors(true); loadVisits(true); }
     if (!$('cm-pane').hidden) loadComments(true);
   }
 
@@ -353,14 +519,14 @@ export function initStats(o: Opts) {
   document.querySelectorAll<HTMLButtonElement>('#st-range [data-days]').forEach((b) => b.addEventListener('click', () => {
     days = Number(b.dataset.days);
     document.querySelectorAll('#st-range [data-days]').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
-    loadStats(); loadPostStats(); loadVisitors();
+    loadStats(); loadPostStats(); loadVisitors(true); loadVisits(true);
   }));
   $('st-refresh').addEventListener('click', refreshAll);
   // the period's visits as a CSV file (the download needs the sign-in header, so it's fetched, then saved)
   $('st-csv').addEventListener('click', async (e) => {
     const b = e.currentTarget as HTMLButtonElement; b.disabled = true;
     try {
-      const r = await fetch(`${o.api}/admin/visits.csv?days=${days}`, { cache: 'no-store', headers: { Authorization: `Bearer ${o.token()}` } });
+      const r = await fetch(`${o.api}/admin/visits.csv?${query()}`, { cache: 'no-store', headers: { Authorization: `Bearer ${o.token()}` } });
       if (!r.ok) throw new Error(r.status === 401 ? "The stats server didn't accept your sign-in. Log out and log in again." : `The stats server answered ${r.status}.`);
       const url = URL.createObjectURL(await r.blob());
       const a = h('a', { href: url, download: `visits-${days === 1 ? '24h' : `${days}d`}-${new Date().toISOString().slice(0, 10)}.csv` }) as HTMLAnchorElement;
@@ -371,9 +537,11 @@ export function initStats(o: Opts) {
   // "Online now" keeps itself current while you look at it
   setInterval(async () => {
     if ($('st-pane').hidden || document.visibilityState !== 'visible' || !document.getElementById('st-live')) return;
-    try { const { live } = await api('/admin/live'); const el = document.getElementById('st-live'); if (el) el.textContent = num(live); } catch {}
+    try { const { live } = await api(`/admin/live?${query()}`); const el = document.getElementById('st-live'); if (el) el.textContent = num(live); } catch {}
   }, 30e3);
   $('st-visits-more').addEventListener('click', () => loadVisits());
+  $('st-visitors-more').addEventListener('click', moreVisitors);
+  document.querySelectorAll<HTMLButtonElement>('#st-visitors-card [data-who]').forEach((b) => b.addEventListener('click', () => setWho(b.dataset.who as 'all' | 'online')));
   $('cm-more').addEventListener('click', () => loadComments());
   $('cm-refresh').addEventListener('click', () => loadComments(true));
   document.querySelectorAll<HTMLButtonElement>('#cm-show [data-show]').forEach((b) => b.addEventListener('click', () => {
@@ -404,7 +572,7 @@ export function initStats(o: Opts) {
   return {
     // called when a tab opens
     show(tab: string) {
-      if (tab === 'stats') { loadStats(); loadPostStats(); loadVisitors(); loadVisits(true); }
+      if (tab === 'stats') { renderChips(); loadStats(); loadPostStats(); loadVisitors(true); loadVisits(true); }
       if (tab === 'comments') { loadComments(true); markSeen(); }
     },
     badge,

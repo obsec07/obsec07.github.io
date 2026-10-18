@@ -1,24 +1,24 @@
 ---
 import { CATEGORY_LABELS } from '../config';
-import { tagHref } from '../lib/posts';
+import { tagHref, PIN_ICON } from '../lib/posts';
 interface Props {
   title: string; slug: string; date: Date; category: string;
-  description?: string; tags?: string[]; minutes?: number;
+  description?: string; tags?: string[]; minutes?: number; pinned?: boolean;
 }
-const { title, slug, date, category, description, tags = [], minutes } = Astro.props;
+const { title, slug, date, category, description, tags = [], minutes, pinned = false } = Astro.props;
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const url = (base + '/posts/' + slug).replace(/\/{2,}/g, '/');
 const catUrl = (base + '/' + category).replace(/\/{2,}/g, '/');
 const d = date.toISOString().slice(0, 10);
 const label = CATEGORY_LABELS[category] ?? category;
 ---
-<li class="post-item">
+<li class={`post-item${pinned ? ' pinned' : ''}`}>
   <div class="post-meta">
     <a class="chip" href={catUrl}>{label}</a>
     <span>{d}</span>
     {minutes && <span class="read-time">{minutes} min read</span>}
     {tags.slice(0, 5).map((t) => <a class="tag" href={tagHref(base, t)}>{t}</a>)}
   </div>
-  <h3><a href={url}>{title}</a></h3>
+  <h3>{pinned && <span class="tl-pin" title="Pinned" aria-label="Pinned:" set:html={PIN_ICON} />}<a href={url}>{title}</a></h3>
   {description && <p class="desc">{description}</p>}
 </li>

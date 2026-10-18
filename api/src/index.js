@@ -33,7 +33,7 @@ const SCHEMA = [
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, path TEXT NOT NULL, title TEXT,
     referrer TEXT, ref_host TEXT, guest TEXT, ip TEXT,
     country TEXT, region TEXT, city TEXT, lat REAL, lon REAL, timezone TEXT, asn INTEGER, org TEXT,
-    browser TEXT, os TEXT, device TEXT, ua TEXT, lang TEXT, screen TEXT, bot INTEGER NOT NULL DEFAULT 0)`,
+    browser TEXT, os TEXT, device TEXT, ua TEXT, lang TEXT, screen TEXT, bot INTEGER NOT NULL DEFAULT 0, postal TEXT)`,
   'CREATE INDEX IF NOT EXISTS visits_ts ON visits (ts)',
   'CREATE INDEX IF NOT EXISTS visits_ip_ts ON visits (ip, ts)',
   'CREATE INDEX IF NOT EXISTS visits_guest ON visits (guest, ts)',
@@ -58,7 +58,9 @@ const SCHEMA = [
   // all-time views per post (visits are deleted after 90 days; these counts stay). One per visitor per 30 minutes.
   `CREATE TABLE IF NOT EXISTS post_views (post TEXT PRIMARY KEY, views INTEGER NOT NULL DEFAULT 0)`,
 ];
-const SCHEMA_VERSION = '3';
+const SCHEMA_VERSION = '4';
+// columns added after a table was first made (a new database gets them from CREATE TABLE): 3 answers, 4 postal codes
+const COLUMNS = [['comments', 'parent INTEGER'], ['visits', 'postal TEXT']];
 // a visit's post, from its path ('/posts/<slug>/', also under a base path)
 const SLUG_SQL = "rtrim(substr(path, instr(path, '/posts/') + 7), '/')";
 
@@ -81,8 +83,8 @@ async function readMeta(env) {
 async function init(env) {
   let meta = await readMeta(env);
   if (meta.schema !== SCHEMA_VERSION || !meta.form_key) {
-    // schema 3: answers to replies. A new database gets the column from CREATE TABLE (this then fails, harmlessly).
-    try { await env.DB.prepare('ALTER TABLE comments ADD COLUMN parent INTEGER').run(); } catch {}
+    // on a new database the column is already there and this fails, harmlessly
+    for (const [table, col] of COLUMNS) { try { await env.DB.prepare(`ALTER TABLE ${table} ADD COLUMN ${col}`).run(); } catch {} }
     await env.DB.batch([...SCHEMA.map((s) => env.DB.prepare(s)),
       // views counted before post_views existed (schema 1): taken from the visits still kept
       env.DB.prepare(`INSERT OR IGNORE INTO post_views (post, views) SELECT ${SLUG_SQL} p, COUNT(*) FROM visits
@@ -127,7 +129,7 @@ function client(req) {
   const num = (v) => (v == null || v === '' || Number.isNaN(Number(v)) ? null : Number(v));
   return {
     ip: req.headers.get('cf-connecting-ip') || '',
-    country: cf.country || null, region: cf.region || null, city: cf.city || null,
+    country: cf.country || null, region: cf.region || null, city: cf.city || null, postal: cf.postalCode || null,
     lat: num(cf.latitude), lon: num(cf.longitude), timezone: cf.timezone || null,
     asn: num(cf.asn), org: cf.asOrganization || null, ua, ...parseUA(ua),
   };
@@ -259,10 +261,10 @@ async function hit(req, env) {
     const again = await env.DB.prepare(`SELECT 1 x FROM visits WHERE ${guest ? 'guest' : 'ip'} = ? AND path = ? AND ts > ? LIMIT 1`).bind(guest || c.ip, path, now() - 30 * MIN).first();
     if (!again) view = env.DB.prepare('INSERT INTO post_views (post, views) VALUES (?, 1) ON CONFLICT (post) DO UPDATE SET views = views + 1').bind(pm[1]);
   }
-  const insert = env.DB.prepare(`INSERT INTO visits (ts, path, title, referrer, ref_host, guest, ip, country, region, city, lat, lon, timezone, asn, org,
-      browser, os, device, ua, lang, screen, bot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+  const insert = env.DB.prepare(`INSERT INTO visits (ts, path, title, referrer, ref_host, guest, ip, country, region, city, postal, lat, lon, timezone, asn, org,
+      browser, os, device, ua, lang, screen, bot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(now(), path, str(b.title, 200) || null, ref && ref.referrer, ref && ref.host, guest, c.ip || null,
-      c.country, c.region, c.city, c.lat, c.lon, c.timezone, c.asn, c.org, c.browser, c.os, c.device, c.ua || null,
+      c.country, c.region, c.city, c.postal, c.lat, c.lon, c.timezone, c.asn, c.org, c.browser, c.os, c.device, c.ua || null,
       str(b.lang, 20) || null, screen, c.bot ? 1 : 0);
   await env.DB.batch(view ? [insert, view] : [insert]);
   return empty();
@@ -446,38 +448,58 @@ function range(url) {
   const offset = segs.length ? segs.slice(1).reduce((acc, [t, o]) => `CASE WHEN ts >= ${t} THEN ${o} ELSE ${acc} END`, String(segs[0][1])) : String(tzo);
   return { days, since: now() - days * DAY, offset };
 }
+// The dashboard's filters: click a country, city, page, source, device… in /admin and every number follows.
+// ?country=IN&region=…&city=…&path=…&ref=…&device=…&browser=…&os=…&ip=…&guest=… ("-" means "not known").
+// Values only ever go in as bound parameters.
+const FILTERS = { country: 'country', region: 'region', city: 'city', path: 'path', ref: 'ref_host', device: 'device', browser: 'browser', os: 'os', ip: 'ip' };
+function visitFilter(p, alias = '') {
+  const sql = [], args = [];
+  for (const [k, col] of Object.entries(FILTERS)) {
+    const v = p.get(k);
+    if (v == null || v === '') continue;
+    if (v === '-') sql.push(`${alias}${col} IS NULL`);
+    else { sql.push(`${alias}${col} = ?`); args.push(v.slice(0, 300)); }
+  }
+  if (isGuest(p.get('guest'))) { sql.push(`${alias}guest = ?`); args.push(p.get('guest')); }
+  return { sql: sql.map((s) => ` AND ${s}`).join(''), args, on: sql.length > 0 };
+}
 async function stats(req, env) {
-  const url = new URL(req.url), { days, since, offset } = range(url);
+  const url = new URL(req.url), { days, since, offset } = range(url), f = visitFilter(url.searchParams);
   // 24 hours: by UTC hour (the page labels each one in local time); longer: by the admin's local day
   const bucket = days === 1 ? 'ts / 3600000' : `date(ts / 1000 + (${offset}) * 60, 'unixepoch')`;
-  const V = `FROM visits WHERE ts > ? AND bot = 0`;
-  const top = (col, extra = '') => env.DB.prepare(`SELECT ${col}, COUNT(*) views, COUNT(DISTINCT ${WHO}) visitors ${V} ${extra} GROUP BY ${col} ORDER BY visitors DESC, views DESC LIMIT 10`).bind(since);
+  const V = `FROM visits WHERE ts > ? AND bot = 0${f.sql}`, at = (t) => [t, ...f.args];
+  const top = (col, extra = '') => env.DB.prepare(`SELECT ${col}, COUNT(*) views, COUNT(DISTINCT ${WHO}) visitors ${V} ${extra} GROUP BY ${col} ORDER BY visitors DESC, views DESC LIMIT 50`).bind(...at(since));
+  // with a filter on, replies and likes are the ones from the guests it matches
+  const guests = f.on ? ` AND guest IN (SELECT guest FROM visits WHERE ts > ? AND bot = 0${f.sql} AND guest IS NOT NULL)` : '';
   const q = [
-    env.DB.prepare(`SELECT COUNT(*) views, COUNT(DISTINCT ${WHO}) visitors ${V}`).bind(since),
-    env.DB.prepare(`SELECT COUNT(DISTINCT ${WHO}) n ${V}`).bind(now() - 5 * MIN),
-    env.DB.prepare('SELECT COUNT(*) n FROM comments WHERE ts > ? AND owner = 0').bind(since),
-    env.DB.prepare('SELECT COUNT(*) n FROM likes WHERE ts > ?').bind(since),
-    env.DB.prepare('SELECT COUNT(*) n FROM visits WHERE ts > ? AND bot = 1').bind(since),
-    env.DB.prepare(`SELECT ${bucket} b, COUNT(*) views, COUNT(DISTINCT ${WHO}) visitors ${V} GROUP BY b ORDER BY b`).bind(since),
-    env.DB.prepare(`SELECT path, MAX(title) title, COUNT(*) views, COUNT(DISTINCT ${WHO}) visitors ${V} GROUP BY path ORDER BY views DESC LIMIT 10`).bind(since),
+    env.DB.prepare(`SELECT COUNT(*) views, COUNT(DISTINCT ${WHO}) visitors ${V}`).bind(...at(since)),
+    env.DB.prepare(`SELECT COUNT(DISTINCT ${WHO}) n ${V}`).bind(...at(now() - 5 * MIN)),
+    env.DB.prepare(`SELECT COUNT(*) n FROM comments WHERE ts > ? AND owner = 0${guests}`).bind(since, ...(f.on ? at(since) : [])),
+    env.DB.prepare(`SELECT COUNT(*) n FROM likes WHERE ts > ?${guests}`).bind(since, ...(f.on ? at(since) : [])),
+    env.DB.prepare(`SELECT COUNT(*) n FROM visits WHERE ts > ? AND bot = 1${f.sql}`).bind(...at(since)),
+    env.DB.prepare(`SELECT ${bucket} b, COUNT(*) views, COUNT(DISTINCT ${WHO}) visitors ${V} GROUP BY b ORDER BY b`).bind(...at(since)),
+    env.DB.prepare(`SELECT path, MAX(title) title, COUNT(*) views, COUNT(DISTINCT ${WHO}) visitors ${V} GROUP BY path ORDER BY views DESC LIMIT 50`).bind(...at(since)),
     top('country'),
-    env.DB.prepare(`SELECT city, region, country, COUNT(*) views, COUNT(DISTINCT ${WHO}) visitors ${V} AND city IS NOT NULL GROUP BY city, region, country ORDER BY visitors DESC, views DESC LIMIT 10`).bind(since),
-    top('ref_host', 'AND ref_host IS NOT NULL'),
+    env.DB.prepare(`SELECT city, region, country, COUNT(*) views, COUNT(DISTINCT ${WHO}) visitors ${V} AND city IS NOT NULL GROUP BY city, region, country ORDER BY visitors DESC, views DESC LIMIT 50`).bind(...at(since)),
+    top('ref_host'),   // null: typed in, a bookmark, or a site that hides where people came from
     top('browser'), top('os'), top('device'),
+    // the map: each place once, where Cloudflare puts it (the middle of the city, or of the postal area)
+    env.DB.prepare(`SELECT city, region, country, ROUND(AVG(lat), 4) lat, ROUND(AVG(lon), 4) lon, COUNT(*) views, COUNT(DISTINCT ${WHO}) visitors
+      ${V} AND lat IS NOT NULL AND lon IS NOT NULL GROUP BY city, region, country ORDER BY visitors DESC LIMIT 300`).bind(...at(since)),
   ];
-  const [tot, live, cm, lk, bots, series, pages, countries, cities, refs, browsers, oses, devices] = (await env.DB.batch(q)).map((r) => r.results);
+  const [tot, live, cm, lk, bots, series, pages, countries, cities, refs, browsers, oses, devices, places] = (await env.DB.batch(q)).map((r) => r.results);
   return json({
     days, views: tot[0].views, visitors: tot[0].visitors, live: live[0].n, comments: cm[0].n, likes: lk[0].n, bots: bots[0].n,
-    series, pages, countries, cities, referrers: refs, browsers, os: oses, devices,
+    series, pages, countries, cities, referrers: refs, browsers, os: oses, devices, places,
   });
 }
 // every post with its all-time views, and views / visitors in the range, likes and replies
 async function adminPosts(req, env) {
-  const { since } = range(new URL(req.url));
+  const url = new URL(req.url), { since } = range(url), f = visitFilter(url.searchParams);
   const [all, period, lk, cm] = (await env.DB.batch([
     env.DB.prepare('SELECT post, views FROM post_views'),
     env.DB.prepare(`SELECT ${SLUG_SQL} post, COUNT(*) views, COUNT(DISTINCT ${WHO}) visitors FROM visits
-      WHERE ts > ? AND bot = 0 AND instr(path, '/posts/') > 0 GROUP BY post`).bind(since),
+      WHERE ts > ? AND bot = 0 AND instr(path, '/posts/') > 0${f.sql} GROUP BY post`).bind(since, ...f.args),
     env.DB.prepare('SELECT post, COUNT(*) n FROM likes GROUP BY post'),
     env.DB.prepare('SELECT post, COUNT(*) n FROM comments GROUP BY post'),
   ])).map((r) => r.results);
@@ -492,46 +514,52 @@ async function adminPosts(req, env) {
 // the visits of the range as a spreadsheet (newest first, at most 20,000). Cells that a spreadsheet would run as a
 // formula (=, +, -, @) get a leading apostrophe: visitors choose what goes in titles and referrers.
 async function visitsCsv(req, env) {
-  const { days, since } = range(new URL(req.url));
-  const cols = ['time', 'path', 'title', 'referrer', 'guest', 'ip', 'country', 'region', 'city', 'timezone', 'asn', 'network', 'browser', 'os', 'device', 'language', 'screen', 'bot'];
-  const rows = (await env.DB.prepare(`SELECT ts, path, title, referrer, guest, ip, country, region, city, timezone, asn, org, browser, os, device, lang, screen, bot
-    FROM visits WHERE ts > ? ORDER BY id DESC LIMIT 20000`).bind(since).all()).results;
+  const url = new URL(req.url), { days, since } = range(url), f = visitFilter(url.searchParams);
+  const cols = ['time', 'path', 'title', 'referrer', 'guest', 'ip', 'country', 'region', 'city', 'postal code', 'latitude', 'longitude', 'timezone', 'asn', 'network', 'browser', 'os', 'device', 'language', 'screen', 'bot'];
+  const rows = (await env.DB.prepare(`SELECT ts, path, title, referrer, guest, ip, country, region, city, postal, lat, lon, timezone, asn, org, browser, os, device, lang, screen, bot
+    FROM visits WHERE ts > ?${f.sql} ORDER BY id DESC LIMIT 20000`).bind(since, ...f.args).all()).results;
   const cell = (v) => {
     let t = v == null ? '' : String(v);
     if (/^[=+\-@\t\r]/.test(t)) t = `'${t}`;
     return /[",\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
   };
   const lines = [cols.join(','), ...rows.map((r) => [new Date(r.ts).toISOString(), r.path, r.title, r.referrer, r.guest, r.ip, r.country, r.region, r.city,
-    r.timezone, r.asn, r.org, r.browser, r.os, r.device, r.lang, r.screen, r.bot ? 'yes' : 'no'].map(cell).join(','))];
+    r.postal, r.lat, r.lon, r.timezone, r.asn, r.org, r.browser, r.os, r.device, r.lang, r.screen, r.bot ? 'yes' : 'no'].map(cell).join(','))];
   return new Response('\ufeff' + lines.join('\r\n') + '\r\n', { headers: { 'content-type': 'text/csv; charset=utf-8',
     'content-disposition': `attachment; filename="visits-${days === 1 ? '24h' : `${days}d`}.csv"`, 'cache-control': 'no-store' } });
 }
+// the raw log, newest first: everything, or the dashboard's period (days=) and filters
 async function visits(req, env) {
-  const url = new URL(req.url), p = url.searchParams;
+  const url = new URL(req.url), p = url.searchParams, f = visitFilter(p, 'v.');
   const limit = Math.max(1, Math.min(200, Number(p.get('limit')) || 50));
   const where = ['1 = 1'], args = [];
   if (Number(p.get('before')) > 0) { where.push('v.id < ?'); args.push(Number(p.get('before'))); }
-  if (isGuest(p.get('guest'))) { where.push('v.guest = ?'); args.push(p.get('guest')); }
-  if (p.get('ip')) { where.push('v.ip = ?'); args.push(p.get('ip').slice(0, 64)); }
+  if (p.get('days')) { where.push('v.ts > ?'); args.push(range(url).since); }
   if (p.get('bots') !== '1') where.push('v.bot = 0');
-  const rows = await env.DB.prepare(`SELECT v.id, v.ts, v.path, v.title, v.referrer, v.guest, v.ip, v.country, v.region, v.city, v.lat, v.lon, v.timezone,
+  const rows = await env.DB.prepare(`SELECT v.id, v.ts, v.path, v.title, v.referrer, v.ref_host, v.guest, v.ip, v.country, v.region, v.city, v.postal, v.lat, v.lon, v.timezone,
       v.asn, v.org, v.browser, v.os, v.device, v.lang, v.screen, v.bot,
       (SELECT name FROM comments c WHERE c.guest = v.guest ORDER BY c.ts DESC LIMIT 1) name,
       EXISTS (SELECT 1 FROM blocks b WHERE b.ip = v.ip) blocked
-    FROM visits v WHERE ${where.join(' AND ')} ORDER BY v.id DESC LIMIT ?`).bind(...args, limit).all();
+    FROM visits v WHERE ${where.join(' AND ')}${f.sql} ORDER BY v.id DESC LIMIT ?`).bind(...args, ...f.args, limit).all();
   return json({ visits: rows.results.map((r) => ({ ...r, blocked: !!r.blocked, bot: !!r.bot })) });
 }
+// one row per visitor (guest cookie, or IP without one), last seen first, with where they were last and what they did.
+// online=1: only the ones seen in the last 5 minutes.
 async function visitors(req, env) {
-  const { since } = range(new URL(req.url));
+  const url = new URL(req.url), p = url.searchParams, { since } = range(url), f = visitFilter(p);
+  const limit = Math.max(1, Math.min(300, Number(p.get('limit')) || 100));
   const rows = await env.DB.prepare(`WITH agg AS (
-      SELECT ${WHO} who, MIN(ts) first, MAX(ts) last, MAX(id) last_id, COUNT(*) views, COUNT(DISTINCT path) pages
-      FROM visits WHERE ts > ? AND bot = 0 GROUP BY who ORDER BY last DESC LIMIT 100)
-    SELECT agg.first, agg.last, agg.views, agg.pages, v.guest, v.ip, v.country, v.region, v.city, v.org, v.browser, v.os, v.device,
+      SELECT ${WHO} who, MIN(ts) first, MAX(ts) last, MIN(id) first_id, MAX(id) last_id, COUNT(*) views, COUNT(DISTINCT path) pages
+      FROM visits WHERE ts > ? AND bot = 0${f.sql} GROUP BY who ${p.get('online') === '1' ? 'HAVING MAX(ts) > ?' : ''} ORDER BY last DESC LIMIT ?)
+    SELECT agg.first, agg.last, agg.views, agg.pages, v.guest, v.ip, v.country, v.region, v.city, v.postal, v.lat, v.lon, v.timezone,
+      v.asn, v.org, v.browser, v.os, v.device, v.lang, v.screen, v.path, v.title,
+      (SELECT referrer FROM visits fv WHERE fv.id = agg.first_id) referrer,
       (SELECT name FROM comments c WHERE c.guest = v.guest ORDER BY c.ts DESC LIMIT 1) name,
       (SELECT COUNT(*) FROM comments c WHERE c.guest = v.guest) comments,
       (SELECT COUNT(*) FROM likes l WHERE l.guest = v.guest) likes,
       EXISTS (SELECT 1 FROM blocks b WHERE b.ip = v.ip) blocked
-    FROM agg JOIN visits v ON v.id = agg.last_id ORDER BY agg.last DESC`).bind(since).all();
+    FROM agg JOIN visits v ON v.id = agg.last_id ORDER BY agg.last DESC`)
+    .bind(since, ...f.args, ...(p.get('online') === '1' ? [now() - 5 * MIN] : []), limit).all();
   return json({ visitors: rows.results.map((r) => ({ ...r, blocked: !!r.blocked })) });
 }
 async function adminComments(req, env) {
@@ -593,7 +621,10 @@ async function route(req, env) {
     if (path === '/admin/visits' && M === 'GET') return visits(req, env);
     if (path === '/admin/visits.csv' && M === 'GET') return visitsCsv(req, env);
     if (path === '/admin/posts' && M === 'GET') return adminPosts(req, env);
-    if (path === '/admin/live' && M === 'GET') return json({ live: await count(env, `SELECT COUNT(DISTINCT ${WHO}) n FROM visits WHERE ts > ? AND bot = 0`, now() - 5 * MIN) });
+    if (path === '/admin/live' && M === 'GET') {
+      const f = visitFilter(url.searchParams);
+      return json({ live: await count(env, `SELECT COUNT(DISTINCT ${WHO}) n FROM visits WHERE ts > ? AND bot = 0${f.sql}`, now() - 5 * MIN, ...f.args) });
+    }
     if (path === '/admin/visitors' && M === 'GET') return visitors(req, env);
     if (path === '/admin/comments' && M === 'GET') return adminComments(req, env);
     if ((m = /^\/admin\/comments\/(\d+)\/delete$/.exec(path)) && M === 'POST') { await removeComment(env, Number(m[1])); return json({ ok: true }); }

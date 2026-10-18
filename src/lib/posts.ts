@@ -15,6 +15,9 @@ export async function publishedPosts(): Promise<Post[]> {
   return (await getCollection('posts', isLive)).sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
 }
 
+/** The pin shown on pinned (sticky) posts: lucide "pin", inline SVG markup. */
+export const PIN_ICON = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="17" x2="12" y2="22"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24Z"/></svg>';
+
 /** A blog's list order: pinned (sticky) posts first, then newest first. */
 export const pinnedFirst = (posts: Post[]) => [...posts].sort((a, b) => Number(b.data.pinned) - Number(a.data.pinned) || b.data.date.valueOf() - a.data.date.valueOf());
 

@@ -13,7 +13,7 @@ const FINE = 'github_pat_' + 'F'.repeat(40);   // the owner's token, with GitHub
 const G1 = 'a'.repeat(32), G2 = 'b'.repeat(32);
 const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
 const WIN_CHROME = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
-const MUMBAI = { country: 'IN', region: 'Maharashtra', city: 'Mumbai', latitude: '19.07', longitude: '72.87', timezone: 'Asia/Kolkata', asn: 55836, asOrganization: 'Reliance Jio' };
+const MUMBAI = { country: 'IN', region: 'Maharashtra', city: 'Mumbai', postalCode: '400070', latitude: '19.07', longitude: '72.87', timezone: 'Asia/Kolkata', asn: 55836, asOrganization: 'Reliance Jio' };
 
 let env, github;
 const realFetch = globalThis.fetch;
@@ -228,7 +228,8 @@ test('admin analytics: totals, daily series, top lists, visitors with IP + locat
   assert.deepEqual(s.pages[0], { path: '/posts/hello-world/', title: 'Hello', views: 2, visitors: 2 });
   assert.deepEqual(s.countries.map((c) => c.country).sort(), ['IN', 'US']);
   assert.deepEqual(s.cities.map((c) => c.city).sort(), ['Mumbai', 'San Jose']);
-  assert.deepEqual(s.referrers, [{ ref_host: 't.co', views: 1, visitors: 1 }]);
+  assert.deepEqual(s.referrers, [{ ref_host: null, views: 2, visitors: 2 }, { ref_host: 't.co', views: 1, visitors: 1 }]);   // null: direct
+  assert.deepEqual(s.places, [{ city: 'Mumbai', region: 'Maharashtra', country: 'IN', lat: 19.07, lon: 72.87, views: 2, visitors: 1 }]);   // San Jose: no coordinates
   assert.deepEqual(s.devices.map((d) => d.device).sort(), ['Desktop', 'Mobile']);
   const hourly = (await call('GET', '/admin/stats?days=1', { token: GOOD })).data.series;
   assert.equal(hourly[0].b, Math.floor(Date.now() / 3600e3));   // by UTC hour; the page labels it in local time
@@ -334,6 +335,39 @@ test('post views: all-time, people only, once per visitor per 30 minutes, real p
   assert.equal((await call('GET', '/posts/hello-world')).data.views, 4);
 });
 
+test('admin analytics filters: every number follows the country, city, page, source or device clicked', async () => {
+  await call('POST', '/hit', { body: { path: '/', guest: G1, ref: 'https://t.co/abc' } });
+  await call('POST', '/hit', { body: { path: '/posts/hello-world/', title: 'Hello', guest: G1 } });
+  await call('POST', '/hit', { ip: '198.51.100.20', ua: WIN_CHROME, cf: { country: 'US', region: 'California', city: 'San Jose', postalCode: '95113', latitude: '37.33', longitude: '-121.89' }, body: { path: '/posts/hello-world/', guest: G2 } });
+  await comment('hello-world', { body: 'hi' });                                  // G1, from Mumbai
+  await call('POST', '/posts/hello-world/like', { body: { guest: G2, like: true } });
+  const stats = async (q) => (await call('GET', `/admin/stats?days=7&${q}`, { token: GOOD })).data;
+  let s = await stats('country=US');
+  assert.deepEqual([s.views, s.visitors, s.live, s.comments, s.likes], [1, 1, 1, 0, 1]);   // replies and likes: of the guests it matches
+  assert.deepEqual(s.pages.map((p) => p.path), ['/posts/hello-world/']);
+  assert.deepEqual(s.places, [{ city: 'San Jose', region: 'California', country: 'US', lat: 37.33, lon: -121.89, views: 1, visitors: 1 }]);
+  s = await stats('country=IN&region=Maharashtra&city=Mumbai');
+  assert.deepEqual([s.views, s.visitors, s.comments, s.likes], [2, 1, 1, 0]);
+  assert.equal((await stats('ref=-')).views, 2);                                   // direct visits
+  assert.equal((await stats('ref=t.co')).visitors, 1);
+  assert.equal((await stats('device=Desktop')).visitors, 1);
+  assert.equal((await stats('path=%2F')).views, 1);
+  assert.equal((await stats(`guest=${G2}`)).views, 1);
+  assert.equal((await stats("country=IN' OR '1'='1")).views, 0);                   // values are bound, never pasted into the SQL
+  const visits = async (q) => (await call('GET', `/admin/visits?${q}`, { token: GOOD })).data.visits;
+  assert.deepEqual((await visits('country=US')).map((v) => [v.city, v.postal, v.lat, v.lon]), [['San Jose', '95113', 37.33, -121.89]]);
+  assert.equal((await visits('days=7&path=%2F')).length, 1);
+  const people = async (q) => (await call('GET', `/admin/visitors?days=7&${q}`, { token: GOOD })).data.visitors;
+  const mumbai = (await people('country=IN'))[0];
+  assert.deepEqual([mumbai.guest, mumbai.postal, mumbai.lat, mumbai.timezone, mumbai.referrer, mumbai.views, mumbai.pages], [G1, '400070', 19.07, 'Asia/Kolkata', 't.co/abc', 2, 2]);
+  assert.equal((await people('online=1')).length, 2);
+  env.DB.sqlite.exec(`UPDATE visits SET ts = ts - 600000 WHERE guest = '${G2}'`);
+  assert.deepEqual((await people('online=1')).map((v) => v.guest), [G1]);           // seen in the last 5 minutes
+  assert.equal((await call('GET', '/admin/live?country=US', { token: GOOD })).data.live, 0);
+  const req = new Request('https://api.example/admin/visits.csv?days=7&country=IN', { headers: { authorization: `Bearer ${GOOD}`, origin: SITE } });
+  assert.equal((await (await worker.fetch(req, env)).text()).trim().split('\r\n').length, 3);   // header + Mumbai's 2 visits
+});
+
 test('upgrading a database from before view counts fills them from the visits it still has', async () => {
   await call('GET', '/health');
   const ins = env.DB.sqlite.prepare('INSERT INTO visits (ts, path, guest, bot) VALUES (?, ?, ?, ?)');
@@ -344,7 +378,7 @@ test('upgrading a database from before view counts fills them from the visits it
   env = { ...env, DB: { ...env.DB } };                               // a new Worker instance on the same database
   await call('GET', '/health');
   assert.deepEqual(rows('SELECT post, views FROM post_views ORDER BY post'), [{ post: 'hello-world', views: 2 }, { post: 'second-post', views: 1 }]);
-  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '3');
+  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '4');
 });
 
 test('admin: per-post stats, visits as CSV (formula-safe), online now', async () => {
@@ -362,10 +396,10 @@ test('admin: per-post stats, visits as CSV (formula-safe), online now', async ()
   assert.match(res.headers.get('content-type'), /text\/csv/);
   assert.match(res.headers.get('content-disposition'), /visits-7d\.csv/);
   const lines = csv.replace(/^﻿/, '').trim().split('\r\n');
-  assert.equal(lines[0], 'time,path,title,referrer,guest,ip,country,region,city,timezone,asn,network,browser,os,device,language,screen,bot');
+  assert.equal(lines[0], 'time,path,title,referrer,guest,ip,country,region,city,postal code,latitude,longitude,timezone,asn,network,browser,os,device,language,screen,bot');
   assert.equal(lines.length, 3);
   assert.ok(lines[2].includes(`"'=HYPERLINK(""http://evil"",""x"")"`), lines[2]);   // not run as a formula
-  assert.ok(lines[2].includes('203.0.113.7') && lines[2].includes('Mumbai'));
+  assert.ok(lines[2].includes('203.0.113.7') && lines[2].includes('Mumbai,400070,19.07,72.87'), lines[2]);
   assert.equal((await call('GET', '/admin/visits.csv')).status, 401);
 
   assert.deepEqual((await call('GET', '/admin/live', { token: GOOD })).data, { live: 2 });
@@ -468,7 +502,16 @@ test('upgrading a database from before answers (schema 2) adds them without losi
   const d = (await call('GET', '/posts/hello-world')).data;
   assert.deepEqual(d.comments.map((c) => [c.body, c.parent, c.likes]), [['old reply', null, 0]]);
   assert.ok(rows("SELECT name FROM sqlite_master WHERE name IN ('comment_likes', 'reports') ORDER BY name").length === 2);
-  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '3');
+  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '4');
+});
+
+test('upgrading a database from before postal codes (schema 3) keeps its visits and records postal codes from then on', async () => {
+  await call('POST', '/hit', { body: { path: '/', guest: G1 } });
+  env.DB.sqlite.exec("ALTER TABLE visits DROP COLUMN postal; UPDATE meta SET v = '3' WHERE k = 'schema'");
+  env = { ...env, DB: { ...env.DB } };
+  await call('POST', '/hit', { body: { path: '/whoami/', guest: G1 } });
+  assert.deepEqual(rows('SELECT path, postal FROM visits ORDER BY id'), [{ path: '/', postal: null }, { path: '/whoami/', postal: '400070' }]);
+  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '4');
 });
 
 test('clean-up: old reply likes and reports lose their IP; likes of deleted replies go', async () => {

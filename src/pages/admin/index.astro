@@ -22,6 +22,8 @@ const STAT_FIELDS = [['messages', 'Messages'], ['reactions', 'Reaction score'], 
 const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${base}/rss.xml`];
 ---
 <Base title="Admin" noindex>
+  {/* clickjacking guard: GitHub Pages can't send frame-ancestors / X-Frame-Options, so inside a frame there's no page */}
+  <script is:inline>if (window.top !== window.self) { document.documentElement.style.display = 'none'; try { window.top.location = window.self.location.href; } catch (e) {} }</script>
   <div class="page-head"><h1>Admin</h1></div>
   {!STATIC_SITE ? (
     <div class="acct-empty">This server has its own admin: <a href="/login">log in</a>, then open the admin panel.</div>
@@ -137,6 +139,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
         {API_STATE === 'ok' ? (
           <Fragment>
             <div class="adm-pane st" id="st-pane" data-pane="stats" hidden>
+              {/* one row of filters above everything: the period, then whatever you clicked (a country, a page…) */}
               <div class="st-filters">
                 <div class="st-range" id="st-range" role="group" aria-label="Period">
                   <button type="button" data-days="1" aria-pressed="false">24 hours</button>
@@ -144,8 +147,9 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
                   <button type="button" data-days="30" aria-pressed="false">30 days</button>
                   <button type="button" data-days="90" aria-pressed="false">90 days</button>
                 </div>
-                <span class="st-tools"><button type="button" class="st-btn" id="st-csv" title="The visits of this period, for Excel / Google Sheets">Download CSV</button><button type="button" class="st-btn" id="st-refresh">Refresh</button></span>
+                <span class="st-tools"><button type="button" class="st-btn" id="st-csv" title="These visits, for Excel / Google Sheets">Download CSV</button><button type="button" class="st-btn" id="st-refresh">Refresh</button></span>
               </div>
+              <div class="st-chips" id="st-chips" aria-live="polite"></div>
               <div class="acct-note err" id="st-err" role="alert" hidden></div>
               <div id="st-body">
                 <div class="st-kpis" id="st-kpis"></div>
@@ -156,30 +160,46 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
                   <details class="st-tablebox"><summary>Show as a table</summary><table class="st-table" id="st-table"></table></details>
                   <p class="st-note" id="st-bots"></p>
                 </div>
-                <div class="st-card"><h3>Your posts <span class="st-unit">views, all time</span></h3><div id="st-posts"></div></div>
+                <div class="st-card st-where">
+                  <div class="st-card-head"><h3>Where visitors are</h3>
+                    <div class="st-tabs" role="tablist" aria-label="Where visitors are"><button type="button" role="tab" data-show="st-map-box" aria-selected="true">Map</button><button type="button" role="tab" data-show="st-countries" aria-selected="false">Countries</button><button type="button" role="tab" data-show="st-cities" aria-selected="false">Cities</button></div></div>
+                  <div class="st-map-box" id="st-map-box"><div class="st-map" id="st-map" role="img" aria-label="Map of visitor locations; the Cities tab lists the same places"></div><p class="st-map-key">Bigger circle: more visitors. Tap one to see only its visitors.</p></div>
+                  <div class="st-list" id="st-countries" hidden></div>
+                  <div class="st-list" id="st-cities" hidden></div>
+                  <p class="st-note">Places come from each visitor's IP address (via Cloudflare). They're usually right to the city or postal area, but mobile networks and VPNs can put someone in a nearby city or another country. A street-level location would need visitors to allow GPS in a browser prompt, which this site doesn't ask for.</p>
+                </div>
                 <div class="st-grid">
-                  <div class="st-card"><h3>Top pages <span class="st-unit">views</span></h3><div id="st-pages"></div></div>
-                  <div class="st-card"><h3>Came from <span class="st-unit">visitors</span></h3><div id="st-refs"></div></div>
-                  <div class="st-card"><h3>Countries <span class="st-unit">visitors</span></h3><div id="st-countries"></div></div>
-                  <div class="st-card"><h3>Cities <span class="st-unit">visitors</span></h3><div id="st-cities"></div></div>
-                  <div class="st-card"><h3>Devices <span class="st-unit">visitors</span></h3><div id="st-devices"></div></div>
-                  <div class="st-card"><h3>Browsers <span class="st-unit">visitors</span></h3><div id="st-browsers"></div></div>
-                  <div class="st-card"><h3>Operating systems <span class="st-unit">visitors</span></h3><div id="st-os"></div></div>
+                  <div class="st-card">
+                    <div class="st-card-head"><h3>Pages</h3>
+                      <div class="st-tabs" role="tablist" aria-label="Pages"><button type="button" role="tab" data-show="st-pages" aria-selected="true">Top pages</button><button type="button" role="tab" data-show="st-posts" aria-selected="false">Your posts</button></div></div>
+                    <div class="st-list" id="st-pages"></div>
+                    <div class="st-list" id="st-posts" hidden></div>
+                  </div>
+                  <div class="st-card"><div class="st-card-head"><h3>Came from</h3></div><div class="st-list" id="st-refs"></div></div>
+                  <div class="st-card">
+                    <div class="st-card-head"><h3>Devices</h3>
+                      <div class="st-tabs" role="tablist" aria-label="Devices"><button type="button" role="tab" data-show="st-devices" aria-selected="true">Type</button><button type="button" role="tab" data-show="st-browsers" aria-selected="false">Browser</button><button type="button" role="tab" data-show="st-os" aria-selected="false">System</button></div></div>
+                    <div class="st-list" id="st-devices"></div>
+                    <div class="st-list" id="st-browsers" hidden></div>
+                    <div class="st-list" id="st-os" hidden></div>
+                  </div>
                 </div>
               </div>
-              <div class="st-card">
-                <h3>Visitors</h3>
-                <p class="st-note">Each guest browser (its cookie), newest first: where they are, their IP address and what they did. Your own visits while signed in here aren't counted.</p>
+              <div class="st-card" id="st-visitors-card">
+                <div class="st-card-head"><h3>Visitors <span class="st-unit" id="st-visitors-n"></span></h3>
+                  <div class="st-tabs" role="tablist" aria-label="Which visitors"><button type="button" role="tab" data-who="all" aria-selected="true">All</button><button type="button" role="tab" data-who="online" aria-selected="false">Online now</button></div></div>
+                <p class="st-note">One row per guest browser (its cookie), last seen first. Tap one for their location, network, device and every page they read. Your own visits while signed in here aren't counted.</p>
                 <div class="acct-note err" id="st-visitors-err" role="alert" hidden></div>
                 <div id="st-visitors"></div>
+                <button type="button" class="st-btn st-more" id="st-visitors-more" hidden>Show more</button>
               </div>
               <div class="st-card" id="st-visits-card">
-                <h3>Recent visits</h3>
-                <div id="st-visits-filter"></div>
+                <div class="st-card-head"><h3>Recent visits</h3><span class="st-unit">tap one for the visitor</span></div>
                 <div class="acct-note err" id="st-visits-err" role="alert" hidden></div>
                 <div id="st-visits"></div>
                 <button type="button" class="st-btn st-more" id="st-visits-more" hidden>Show more</button>
               </div>
+              <dialog class="st-panel" id="st-panel" aria-labelledby="st-panel-title"></dialog>
             </div>
             <div class="adm-pane st" id="cm-pane" data-pane="comments" hidden>
               <div class="st-filters"><h3 class="st-h" id="cm-count">Replies</h3>
