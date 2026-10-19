@@ -197,8 +197,7 @@ How it works:
   you as the member online while you're signed in to `/admin`. The home page's Messages include replies.
 - **Privacy:** IP addresses and locations are only ever shown in `/admin`. The server checks your GitHub
   token for that the way `/admin` does at login (its user must have push rights on this repo, and the
-  token must be able to write to it) and keeps only a hash of it for 30 minutes. The cookie notice mentions the tracking and links
-  to a `/privacy` page that explains it.
+  token must be able to write to it) and keeps only a hash of it for 30 minutes. The cookie notice mentions the tracking.
 - To turn it all off, delete the `CLOUDFLARE_API_TOKEN` secret: the next deploy builds the site without
   replies, likes or tracking. The data stays in Cloudflare (Workers & Pages → `secblog-api`, and D1 →
   `secblog`) until you delete it there.
@@ -218,11 +217,6 @@ docker run -p 8080:8080 -e ADMIN_PASSWORD='…' -v secblog-data:/app/data secblo
 > server, not in git, so copy anything you want to keep into the repo.
 
 ## Security
-- **Security policy:** `/security` (linked in the footer) says how to report a vulnerability, what's in scope
-  and promises no legal action for good-faith research. `/.well-known/security.txt` has the same contact in
-  the standard machine-readable form, and `SECURITY.md` is the repository's GitHub security policy. The
-  email is the contact address from `/admin` → Profile; reports can also go through GitHub's private
-  advisories (repo → Settings → Code security → **Private vulnerability reporting** must be on).
 - **Content-Security-Policy:** every page of the static site carries one (GitHub Pages can't send headers, so
   it's a `<meta>` tag added at build time). Only the site's own scripts run, each inline one by its hash, and
   the page can only talk to itself, the comments server and GitHub's API. `/admin` also refuses to show
