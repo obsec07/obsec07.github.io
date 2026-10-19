@@ -20,7 +20,6 @@ const previewImage = image ? new URL(image, Astro.site).href : ownerPhoto;
 const asset = (p: string) => (import.meta.env.BASE_URL.replace(/\/$/, '') + p).replace(/\/{2,}/g, '/');
 const rssHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/rss.xml').replace(/\/{2,}/g, '/');
 const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').replace(/\/{2,}/g, '/');
-const privacyHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/privacy').replace(/\/{2,}/g, '/');
 ---
 <!doctype html>
 <html lang="en">
@@ -92,7 +91,7 @@ const privacyHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/privacy').r
         : <p>This site uses cookies to help personalise content, tailor your experience and to keep you logged in if you register. By continuing to use this site, you are consenting to our use of cookies.</p>}
       <div class="btns">
         <button class="b ok" id="cookie-ok"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>Accept</button>
-        <a class="b" href={API_URL ? privacyHref : whoamiHref}>Learn more…</a>
+        <a class="b" href={whoamiHref}>Learn more…</a>
       </div>
     </div>
     <button class="to-top" id="to-top" type="button" title="Back to top" aria-label="Back to top">
