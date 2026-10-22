@@ -139,7 +139,7 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
               }
             } catch (e) {}
           }
-          function put(sel, f) { document.querySelectorAll(sel).forEach(function (el) { var v = f(el); if (isFinite(v)) el.textContent = Number(v).toLocaleString('en-US'); }); }
+          function put(sel, f) { document.querySelectorAll(sel).forEach(function (el) { var v = Number(f(el)); if (!isFinite(v)) return; if (window.tobiCount) window.tobiCount(el, v); else el.textContent = v.toLocaleString('en-US'); }); }
           var base = function (el) { return Number(el.getAttribute('data-base')) || 0; };
           fetch(api + '/site-stats').then(function (r) { return r.ok ? r.json() : null; }).then(function (s) {
             if (!s) return;
@@ -170,6 +170,105 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
           entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('rv-in'); io.unobserve(e.target); } });
         }, { rootMargin: '0px 0px -6% 0px' });
         els.forEach(function (el, i) { el.classList.add('rv'); el.style.setProperty('--rv-d', (i % 6) * 45 + 'ms'); io.observe(el); });
+      })();
+      // dynamic touches: decrypting titles, a light that follows the pointer, numbers that count up, pictures that
+      // come into focus, # links on headings. Everything stays still for people who turn animation off.
+      (function () {
+        var still = matchMedia('(prefers-reduced-motion: reduce)').matches, admin = /^\/admin(\/|$)/.test(location.pathname);
+        var GLYPHS = '#$%&*+<>/\\=?!01ABCDEFX';
+        function glyph() { return GLYPHS[(Math.random() * GLYPHS.length) | 0]; }
+        // the title types itself out through a few random characters; the rest of it already holds its place
+        function decrypt(el, ms) {
+          if (el.children.length || el._scr) return;
+          var text = el.textContent, len = text.length; if (!len) return;
+          var x = document.createElement('span'), rest = document.createElement('span');
+          x.className = 'scr-x'; rest.className = 'scr-rest'; rest.setAttribute('aria-hidden', 'true'); x.setAttribute('aria-hidden', 'true');
+          el._scr = 1; el.setAttribute('aria-label', text);
+          var done = document.createTextNode(''); el.textContent = ''; el.append(done, x, rest);
+          var t0 = performance.now(), last = 0;
+          (function step(now) {
+            var p = Math.min(1, (now - t0) / ms), n = Math.floor(p * len), w = Math.min(4, len - n);
+            done.data = text.slice(0, n); rest.textContent = text.slice(n + w);
+            if (now - last > 45) { last = now; x.textContent = text.slice(n, n + w).replace(/\S/g, glyph); }
+            if (p < 1) requestAnimationFrame(step);
+            else { el.textContent = text; el.removeAttribute('aria-label'); el._scr = 0; }
+          })(t0);
+        }
+        // a short word (the logo) flickers through characters in place
+        function flicker(el, ms) {
+          if (el._scr) return; var text = el.textContent; el._scr = 1;
+          var t0 = performance.now();
+          (function step(now) {
+            var p = Math.min(1, (now - t0) / ms), n = Math.floor(p * text.length);
+            el.textContent = text.slice(0, n) + text.slice(n).replace(/\S/g, glyph);
+            if (p < 1) setTimeout(function () { requestAnimationFrame(step); }, 40); else { el.textContent = text; el._scr = 0; }
+          })(t0);
+        }
+        if (!still && !admin) {
+          document.querySelectorAll('.thread-head h1, .page-head h1').forEach(function (h) { decrypt(h, Math.min(900, 280 + h.textContent.length * 16)); });
+          var logo = document.querySelector('.logo');
+          if (logo) logo.addEventListener('mouseenter', function () { logo.querySelectorAll('.word > span').forEach(function (s) { flicker(s, 420); }); });
+          // the light under the pointer on cards and rows
+          if (matchMedia('(hover: hover) and (pointer: fine)').matches) {
+            document.addEventListener('pointermove', function (e) {
+              var c = e.target.closest && e.target.closest('.recent-card, .post-item, .row, .tl-row, .pn'); if (!c) return;
+              var r = c.getBoundingClientRect();
+              c.style.setProperty('--mx', (e.clientX - r.left) + 'px'); c.style.setProperty('--my', (e.clientY - r.top) + 'px');
+            }, { passive: true });
+            document.addEventListener('pointerout', function (e) {
+              var c = e.target.closest && e.target.closest('.recent-card, .post-item, .row, .tl-row, .pn');
+              if (c && !c.contains(e.relatedTarget)) { c.style.removeProperty('--mx'); c.style.removeProperty('--my'); }
+            });
+          }
+        }
+        // numbers count up the first time they come into view; the live numbers (online, messages) count to their new value
+        var fmt = function (n) { return Math.round(n).toLocaleString('en-US'); };
+        var num = function (el) { return Number(el.textContent.replace(/,/g, '')); };
+        function run(el, from, to) {
+          cancelAnimationFrame(el._cr); el._cw = 'run';
+          var t0 = performance.now(), ms = 900;
+          (function step(now) {
+            var p = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - p, 3);
+            el.textContent = fmt(from + (to - from) * e);
+            if (p < 1) el._cr = requestAnimationFrame(step); else el._cw = 'done';
+          })(t0);
+        }
+        window.tobiCount = function (el, to) {
+          if (!isFinite(to)) return;
+          if (still || el._cw !== 'run' && el._cw !== 'done') { el.textContent = fmt(to); return; }   // not shown yet: counts up from 0 to it later
+          var from = num(el); if (from !== to) run(el, isFinite(from) ? from : 0, to);
+        };
+        if (!still && !admin && 'IntersectionObserver' in window) {
+          var io = new IntersectionObserver(function (entries) {
+            entries.forEach(function (e) {
+              if (!e.isIntersecting) return; io.unobserve(e.target);
+              var to = num(e.target); if (isFinite(to) && to > 0) run(e.target, 0, to); else e.target._cw = 'done';
+            });
+          }, { threshold: .6 });
+          document.querySelectorAll('.fstats dd, .ac-stats b, .row .stats .n, [data-online], [data-ostat], [data-fstat]').forEach(function (el) {
+            if (/^\d[\d,]*$/.test(el.textContent.trim())) { el._cw = 'wait'; io.observe(el); }
+          });
+        }
+        // pictures in a post fade in sharp once they've loaded
+        if (!still) document.querySelectorAll('.prose img').forEach(function (img) {
+          if (img.complete) return;
+          img.classList.add('img-wait');
+          var show = function () { img.classList.remove('img-wait'); };
+          img.addEventListener('load', show); img.addEventListener('error', show); setTimeout(show, 6000);
+        });
+        // # next to each heading in a post: copies a link straight to that section ("Link copied", from the share bar)
+        document.querySelectorAll('.message .prose h2[id], .message .prose h3[id]').forEach(function (h) {
+          var a = document.createElement('a');
+          a.className = 'h-link'; a.href = '#' + h.id; a.textContent = '#'; a.setAttribute('aria-label', 'Copy link to this section');
+          a.addEventListener('click', function (e) {
+            e.preventDefault();
+            var url = location.href.split('#')[0] + '#' + h.id;
+            history.replaceState(null, '', '#' + h.id);
+            h.scrollIntoView({ behavior: still ? 'auto' : 'smooth', block: 'start' });
+            if (window.copyLink) window.copyLink(url);
+          });
+          h.appendChild(a);
+        });
       })();
       (function () {
         try {
