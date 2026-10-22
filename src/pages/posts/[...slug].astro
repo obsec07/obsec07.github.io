@@ -143,7 +143,14 @@ const article = { published: post.data.date, modified: edited ? up : undefined, 
         var r = post.getBoundingClientRect(), total = r.height - innerHeight * 0.6;
         var done = total > 0 ? (innerHeight * 0.4 - r.top) / total : 1;
         bar.style.transform = 'scaleX(' + Math.max(0, Math.min(1, done)) + ')';
+        // "On this page" marks the section you're reading: the last heading that has passed the top third of the screen
+        var cur = null;
+        for (var i = 0; i < heads.length && heads[i].h.getBoundingClientRect().top < innerHeight * 0.33; i++) cur = heads[i].a;
+        if (cur !== onLink) { if (onLink) onLink.classList.remove('on'); if (cur) cur.classList.add('on'); onLink = cur; }
       }
+      var onLink = null, heads = [].slice.call(document.querySelectorAll('.toc a[href^="#"]')).map(function (a) {
+        return { a: a, h: document.getElementById(decodeURIComponent(a.getAttribute('href').slice(1))) };
+      }).filter(function (x) { return x.h; });
       function onScroll() { if (!queued) { queued = true; requestAnimationFrame(update); } }
       addEventListener('scroll', onScroll, { passive: true }); addEventListener('resize', onScroll); update();
     })();

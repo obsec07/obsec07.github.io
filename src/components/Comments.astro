@@ -114,6 +114,17 @@ const { slug } = Astro.props;
       return a;
     }
     const heart = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>';
+    // liking: the heart pops and throws a few sparks (not for people who turn animation off)
+    function burst(b: HTMLElement) {
+      const icon = b.querySelector('svg'); if (!icon || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      b.classList.remove('burst'); b.querySelector('.lk-burst')?.remove(); void b.offsetWidth;
+      const s = document.createElement('span'); s.className = 'lk-burst'; s.setAttribute('aria-hidden', 'true');
+      const r = icon.getBoundingClientRect(), o = b.getBoundingClientRect();
+      s.style.left = `${r.left - o.left + r.width / 2}px`; s.style.top = `${r.top - o.top + r.height / 2}px`;
+      for (let i = 0; i < 8; i++) { const d = document.createElement('i'); d.style.setProperty('--a', `${i * 45}deg`); s.append(d); }
+      b.append(s); b.classList.add('burst');
+      setTimeout(() => { s.remove(); b.classList.remove('burst'); }, 650);
+    }
     function likeButton(c: Comment) {
       const b = el('button', `reply-act reply-like${c.liked ? ' on' : ''}`) as HTMLButtonElement;
       b.type = 'button'; b.dataset.like = String(c.id); b.setAttribute('aria-pressed', String(c.liked));
@@ -255,11 +266,13 @@ const { slug } = Astro.props;
         const c = comments.find((x) => String(x.id) === b.dataset.like); if (!c || liking.has(c.id)) return;
         const want = !c.liked;
         liking.add(c.id);
-        c.liked = want; c.likes += want ? 1 : -1; b.replaceWith(likeButton(c));   // show it at once; the answer corrects it
+        c.liked = want; c.likes += want ? 1 : -1;   // show it at once; the answer corrects it
+        const nb = likeButton(c); b.replaceWith(nb); if (want) burst(nb);
         try { const d = await call(`/posts/${encodeURIComponent(SLUG)}/comments/${c.id}/like`, { guest: G, like: want }); c.likes = d.likes; c.liked = d.liked; }
         catch (x) { c.liked = !want; c.likes += want ? -1 : 1; alert((x as Error).message); }
         finally { liking.delete(c.id); }
-        document.querySelector(`#comment-${c.id} .reply-like`)?.replaceWith(likeButton(c));
+        const cur = document.querySelector(`#comment-${c.id} .reply-like`), next = likeButton(c);
+        if (cur && (cur.getAttribute('aria-pressed') !== next.getAttribute('aria-pressed') || cur.textContent !== next.textContent)) cur.replaceWith(next);   // unchanged: let its animation finish
       }
       if (b.dataset.report) {
         const why = prompt('Report this reply to the site owner. Why? (optional)');
@@ -287,6 +300,7 @@ const { slug } = Astro.props;
     likeBtn?.addEventListener('click', async () => {
       const want = !liked;
       liked = want; likes += want ? 1 : -1; renderLike();   // show it at once; the answer corrects it
+      if (want) burst(likeBtn);
       likeBtn.disabled = true;
       try { const d = await call(`/posts/${encodeURIComponent(SLUG)}/like`, { guest: G, like: want }); likes = d.likes; liked = d.liked; }
       catch (x) { liked = !want; likes += want ? -1 : 1; alert((x as Error).message); }

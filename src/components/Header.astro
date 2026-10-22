@@ -117,7 +117,17 @@ const registerHref = href('/register');
           var t = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
           try { localStorage.setItem('theme', t); } catch (e) {}
           var still = matchMedia('(prefers-reduced-motion: reduce)').matches;
-          if (document.startViewTransition && !still) document.startViewTransition(function () { set(t); }); else set(t);
+          if (!document.startViewTransition || still) return set(t);
+          // the new theme spreads out in a circle from the button
+          var r = btn.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+          var end = Math.hypot(Math.max(x, innerWidth - x), Math.max(y, innerHeight - y));
+          root.classList.add('theme-vt');
+          var vt = document.startViewTransition(function () { set(t); });
+          vt.ready.then(function () {
+            root.animate({ clipPath: ['circle(0px at ' + x + 'px ' + y + 'px)', 'circle(' + end + 'px at ' + x + 'px ' + y + 'px)'] },
+              { duration: 550, easing: 'cubic-bezier(.4, 0, .2, 1)', pseudoElement: '::view-transition-new(root)' });
+          }).catch(function () {});
+          vt.finished.finally(function () { root.classList.remove('theme-vt'); });
         });
         // another tab switched
         window.addEventListener('storage', function (e) { if (e.key === 'theme' && (e.newValue === 'light' || e.newValue === 'dark')) set(e.newValue); });

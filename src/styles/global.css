@@ -786,7 +786,7 @@ main.wrap { animation: fade-up .28s ease both; }                       /* page c
 img { transition: opacity .2s ease, box-shadow .15s ease; }
 @media (prefers-reduced-motion: reduce) {   /* respect people who turn animation off */
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
-  @view-transition { navigation: none; }
+  /* (no @view-transition rule in here: the minifier hoists it out of the media query and turns page transitions off for everyone) */
 }
 .adm-or { display: flex; align-items: center; gap: 12px; max-width: 560px; margin: -24px 0 16px; color: var(--muted); font-size: 13px; }
 .adm-or::before, .adm-or::after { content: ''; flex: 1; border-top: 1px solid var(--border-hi); }
@@ -1156,3 +1156,49 @@ body, .site-header, .site-footer, .sub-bar, .widget, .message, .recent-card, .se
 .rv { opacity: 0; transform: translateY(10px); transition: opacity .5s ease var(--rv-d, 0ms), transform .5s cubic-bezier(.2, .7, .2, 1) var(--rv-d, 0ms); }
 .rv.rv-in { opacity: 1; transform: none; }
 @media (prefers-reduced-motion: reduce) { .rv { opacity: 1; transform: none; } }
+
+/* ---- dynamic touches (Base.astro "effects" script); all of them stay still for people who turn animation off ---- */
+/* moving between pages (@view-transition at the top): the header stays put while the page cross-fades */
+.site-header { view-transition-name: site-header; position: relative; z-index: 45; }   /* the name makes it a layer of its own: keep it (and its menus) above the page */
+::view-transition-old(root) { animation: vt-out .16s ease both; }
+::view-transition-new(root) { animation: vt-in .3s ease both; }
+@keyframes vt-out { to { opacity: 0; } }
+@keyframes vt-in { from { opacity: 0; } }
+/* Dark/Light: the new theme spreads out in a circle from the button */
+html.theme-vt .site-header { view-transition-name: none; }
+html.theme-vt::view-transition-old(root), html.theme-vt::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+html.theme-vt, html.theme-vt * { transition: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}
+/* titles decrypt into place: the part not yet shown keeps its room so nothing jumps */
+.scr-x { opacity: .55; }
+.scr-rest { opacity: 0; }
+/* a soft light follows the pointer across cards and rows */
+:root { --spot: rgba(18, 32, 58, .055); }
+:root[data-theme="dark"] { --spot: rgba(255, 255, 255, .065); }
+@media (hover: hover) and (pointer: fine) {
+  .recent-card, .post-item, .row, .tl-row, .pn { background-image: radial-gradient(240px circle at var(--mx, -500px) var(--my, -500px), var(--spot), transparent 70%); }
+}
+/* menu links: an underline grows from the middle on hover */
+.nav > a:not(.active), .nav-item > a:not(.active) { background: linear-gradient(var(--pink), var(--pink)) no-repeat 50% 100% / 0 2px; transition: background-size .25s ease, color .15s; }
+.nav > a:not(.active):hover, .nav-item > a:not(.active):hover { background-size: 100% 2px; }
+/* likes: the heart pops and throws a few sparks */
+.post-like, .reply-like { position: relative; }
+.burst svg { animation: heart-pop .45s cubic-bezier(.17, .89, .32, 1.5); }
+.lk-burst { position: absolute; width: 0; height: 0; pointer-events: none; }
+.lk-burst i { position: absolute; left: -2px; top: -2px; width: 4px; height: 4px; border-radius: 50%; background: var(--heart); opacity: 0; transform: rotate(var(--a)) translateY(0); animation: spark .55s ease-out forwards; }
+.lk-burst i:nth-child(even) { width: 3px; height: 3px; background: var(--pink); }
+@keyframes heart-pop { 0% { transform: scale(1); } 40% { transform: scale(1.45); } 100% { transform: scale(1); } }
+@keyframes spark { 0% { opacity: 1; transform: rotate(var(--a)) translateY(0) scale(1); } 100% { opacity: 0; transform: rotate(var(--a)) translateY(-17px) scale(.4); } }
+/* "On this page": the section you're reading is marked */
+.toc a { display: inline-block; padding: 1px 6px; border: 1px solid transparent; border-radius: 4px; transition: color .2s, background-color .25s, border-color .25s; }
+.toc a.on { color: var(--ink); background: var(--card); border-color: var(--border); }
+.toc li:has(> a.on)::marker { color: var(--ink); }
+/* headings in a post: a # appears on hover; tapping it copies a link to that section */
+.prose :is(h2, h3) .h-link { margin-left: 8px; color: var(--muted-2); text-decoration: none; opacity: 0; transition: opacity .2s; font-weight: 400; }
+.prose :is(h2, h3):hover .h-link, .prose .h-link:focus-visible { opacity: 1; }
+@media (hover: none) { .prose :is(h2, h3) .h-link { opacity: .45; } }
+/* pictures in a post come into focus as they load */
+.prose img { transition: opacity .5s ease, filter .6s ease; }
+.prose img.img-wait { opacity: 0; filter: blur(8px); }
