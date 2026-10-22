@@ -1128,9 +1128,9 @@ body:has(.lightbox) { overflow: hidden; }
 .adm-write.adm-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
 .adm-write.adm-split .adm-body, .adm-write.adm-split .adm-preview { height: 70vh; max-height: none; }
 
-/* ---- minimal look: one clean sans-serif, sentence-case headings, light weights, soft shadows, gentle motion ---- */
+/* ---- minimal look: one clean sans-serif (Space Grotesk), sentence-case headings, light weights, soft shadows, gentle motion ---- */
 :root {
-  --pixel: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; --logo: var(--pixel); --body: var(--pixel);
+  --pixel: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; --logo: var(--pixel); --body: var(--pixel);
   --shadow: 0 1px 2px rgba(18,32,58,.05); --shadow-hi: 0 6px 18px rgba(18,32,58,.09); --pop-shadow: 0 12px 32px rgba(18,32,58,.13);
 }
 :root[data-theme="dark"] { --shadow: 0 1px 2px rgba(0,0,0,.35); --shadow-hi: 0 8px 22px rgba(0,0,0,.45); --pop-shadow: 0 14px 34px rgba(0,0,0,.55); }
