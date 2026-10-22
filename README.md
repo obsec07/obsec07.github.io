@@ -101,7 +101,8 @@ a log-out button.
 change on the token. Never paste the token anywhere else.
 
 `/admin` has five tabs:
-- **Posts**: write, edit and delete posts. **Insert image** adds screenshots: big ones are shrunk to 1600px
+- **Posts**: write, edit and delete posts. **Insert picture or video** adds screenshots and MP4/WebM/MOV videos
+  (up to 50 MB, saved under `public/uploads/`); readers tap a picture in a post to see it full screen. Pictures: big ones are shrunk to 1600px
   wide (WebP) in the browser and saved under `public/uploads/` in the same commit as the post, so the
   site deploys once. What you type is kept on the device until you save (reopen the post to restore it).
   **Preview** shows the post as it will look; on a wide screen it sits next to the text and updates as you
@@ -119,7 +120,10 @@ change on the token. Never paste the token anywhere else.
   a map of where visitors are, countries and cities, pages and your posts, the sites people came from, and
   devices, browsers and systems. **Everything is clickable**: tap a country, a city (also on the map), a
   page, a source or a device and every number, list, visitor and visit below shows only those, with a chip
-  on top to remove it. **Visitors** is one compact row per guest; tap one (or any line in **Recent visits**)
+  on top to remove it. **Came from** names the source: Instagram, LinkedIn, Google, WhatsApp, X… (from the
+  referring site, the app the link was opened in, or a `?utm_source=` / `?ref=` tag on your link). **Visitors** is
+  one compact row per IP address and device (the phone model when the browser reports it, e.g. Android phones;
+  iPhones only say "iPhone"); tap one (or any line in **Recent visits**)
   for everything about them: the city, region and postal code with coordinates and a small map, their time
   zone, IP address and network, device, screen and language, where they came from, and every page they read.
   From there you can show only that visitor or block their IP. **Download CSV** saves the visits you're

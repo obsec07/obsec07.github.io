@@ -81,8 +81,8 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
               <span class="adm-acts"><button class="save-btn" type="button" id="adm-draft-restore">Restore</button><button class="save-btn" type="button" id="adm-draft-discard">Discard</button></span>
             </div>
             <div class="adm-body-tools">
-              <label class="save-btn adm-file">Insert image<input type="file" id="adm-img" accept="image/*" multiple /></label>
-              <span class="hint" id="adm-img-hint">JPG, PNG, WebP or GIF. Big pictures are shrunk to 1600px wide. They upload when you press Save.</span>
+              <label class="save-btn adm-file">Insert picture or video<input type="file" id="adm-img" accept="image/*,video/mp4,video/webm,video/quicktime" multiple /></label>
+              <span class="hint" id="adm-img-hint">JPG, PNG, WebP or GIF pictures (big ones are shrunk to 1600px wide) and MP4, WebM or MOV videos up to 50 MB. They upload when you press Save.</span>
             </div>
             <ul class="adm-imgs" id="adm-imgs" hidden></ul>
             <div class="adm-views" role="group" aria-label="Editor view"><button type="button" data-view="write" aria-pressed="true">Write</button><button type="button" data-view="preview" aria-pressed="false">Preview</button></div>
@@ -178,17 +178,18 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
                   <div class="st-card"><div class="st-card-head"><h3>Came from</h3></div><div class="st-list" id="st-refs"></div></div>
                   <div class="st-card">
                     <div class="st-card-head"><h3>Devices</h3>
-                      <div class="st-tabs" role="tablist" aria-label="Devices"><button type="button" role="tab" data-show="st-devices" aria-selected="true">Type</button><button type="button" role="tab" data-show="st-browsers" aria-selected="false">Browser</button><button type="button" role="tab" data-show="st-os" aria-selected="false">System</button></div></div>
+                      <div class="st-tabs" role="tablist" aria-label="Devices"><button type="button" role="tab" data-show="st-devices" aria-selected="true">Type</button><button type="button" role="tab" data-show="st-browsers" aria-selected="false">Browser</button><button type="button" role="tab" data-show="st-os" aria-selected="false">System</button><button type="button" role="tab" data-show="st-models" aria-selected="false">Model</button></div></div>
                     <div class="st-list" id="st-devices"></div>
                     <div class="st-list" id="st-browsers" hidden></div>
                     <div class="st-list" id="st-os" hidden></div>
+                    <div class="st-list" id="st-models" hidden></div>
                   </div>
                 </div>
               </div>
               <div class="st-card" id="st-visitors-card">
                 <div class="st-card-head"><h3>Visitors <span class="st-unit" id="st-visitors-n"></span></h3>
                   <div class="st-tabs" role="tablist" aria-label="Which visitors"><button type="button" role="tab" data-who="all" aria-selected="true">All</button><button type="button" role="tab" data-who="online" aria-selected="false">Online now</button></div></div>
-                <p class="st-note">One row per guest browser (its cookie), last seen first. Tap one for their location, network, device and every page they read. Your own visits while signed in here aren't counted.</p>
+                <p class="st-note">One row per IP address and device (the phone model when the browser reports it), last seen first: where they are, their network and where they came from. Tap one for every detail and every page they read. Your own visits while signed in here aren't counted.</p>
                 <div class="acct-note err" id="st-visitors-err" role="alert" hidden></div>
                 <div id="st-visitors"></div>
                 <button type="button" class="st-btn st-more" id="st-visitors-more" hidden>Show more</button>
@@ -349,6 +350,14 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
     const pad2 = (n) => String(n).padStart(2, '0');
     const sitePath = (repoPath) => sitePage(repoPath.replace(/^public/, ''));
     async function prepareImage(file) {
+      // videos go up as they are (GitHub takes files up to 100 MB; 50 MB keeps the upload and the page reasonable)
+      const vext = { 'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov' }[file.type];
+      if (vext) {
+        if (file.size > 50e6) throw new Error(`${file.name} is too big (50 MB max). Trim it, or upload it to YouTube and paste the link.`);
+        const d = new Date(), name = slugify(file.name.replace(/\.[^.]+$/, '')).slice(0, 40) || 'video';
+        const path = `public/uploads/${d.getFullYear()}/${pad2(d.getMonth() + 1)}/${name}-${Math.random().toString(36).slice(2, 7)}.${vext}`;
+        return { path, b64: toB64(new Uint8Array(await file.arrayBuffer())), url: URL.createObjectURL(file), name, size: file.size, video: true };
+      }
       if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) throw new Error(`${file.name}: pick a JPG, PNG, WebP or GIF.`);
       if (file.size > 25e6) throw new Error(`${file.name} is too big (25 MB max).`);
       let blob = file, ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }[file.type];
@@ -377,7 +386,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
     }
     function showPending() {
       const list = $('adm-imgs');
-      list.innerHTML = [...pending.entries()].map(([p, im]) => `<li><img src="${esc(im.url)}" alt="" /><span>${esc(sitePath(p))}<br /><small>${Math.max(1, Math.round(im.size / 1024))} KB · uploads on Save</small></span><button class="save-btn" type="button" data-rm="${esc(p)}">Remove</button></li>`).join('');
+      list.innerHTML = [...pending.entries()].map(([p, im]) => `<li>${im.video ? `<video src="${esc(im.url)}" muted preload="metadata"></video>` : `<img src="${esc(im.url)}" alt="" />`}<span>${esc(sitePath(p))}<br /><small>${Math.max(1, Math.round(im.size / 1024))} KB · uploads on Save</small></span><button class="save-btn" type="button" data-rm="${esc(p)}">Remove</button></li>`).join('');
       list.hidden = !pending.size;
     }
     function forgetPending() { pending.forEach((im) => URL.revokeObjectURL(im.url)); pending.clear(); showPending(); }
@@ -412,7 +421,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       box.innerHTML = DOMPurify.sanitize(marked.parse(f.elements.body.value || '*Nothing written yet.*', { gfm: true, async: false }));
       const h = document.createElement('h1'); h.className = 'adm-preview-title'; h.textContent = f.elements.title.value.trim() || 'Untitled'; box.prepend(h);
       // pictures not uploaded yet: shown from this device
-      box.querySelectorAll('img').forEach((img) => { for (const [p, im] of pending) if (img.getAttribute('src') === sitePath(p)) img.src = im.url; });
+      box.querySelectorAll('img, video').forEach((el) => { for (const [p, im] of pending) if (el.getAttribute('src') === sitePath(p)) el.src = im.url; });
     }
     let previewTimer = 0;
     function setView(view) {
@@ -788,10 +797,10 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
           pending.set(im.path, im);
           // its own paragraph (right under a list item it would become part of the list)
           const before = ta.value.slice(0, ta.selectionStart), lead = !before ? '' : before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n';
-          insertAtCursor(ta, `${lead}![${im.name.replace(/-/g, ' ')}](${sitePath(im.path)})\n\n`);
+          insertAtCursor(ta, im.video ? `${lead}<video src="${sitePath(im.path)}" controls preload="metadata" playsinline></video>\n\n` : `${lead}![${im.name.replace(/-/g, ' ')}](${sitePath(im.path)})\n\n`);
         } catch (x) { hint.textContent = x.message; hint.classList.add('adm-ferr'); showPending(); return; }
       }
-      hint.textContent = 'JPG, PNG, WebP or GIF. Big pictures are shrunk to 1600px wide. They upload when you press Save.';
+      hint.textContent = 'JPG, PNG, WebP or GIF pictures (big ones are shrunk to 1600px wide) and MP4, WebM or MOV videos up to 50 MB. They upload when you press Save.';
       showPending();
     });
     $('adm-imgs').addEventListener('click', (e) => {

@@ -177,3 +177,25 @@ const article = { published: post.data.date, modified: edited ? up : undefined, 
     </section>
   )}
 </Base>
+
+<script>
+  // full-screen picture view: tap a picture in the post to see it whole; tap again, × or Esc to close
+  document.querySelectorAll<HTMLImageElement>('.message .prose img').forEach((img) => {
+    if (img.closest('a')) return;   // a picture that is a link keeps its link
+    img.tabIndex = 0; img.setAttribute('role', 'button'); img.setAttribute('aria-label', `View picture${img.alt ? `: ${img.alt}` : ''}`);
+    const open = () => {
+      const box = document.createElement('div'); box.className = 'lightbox'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
+      const big = document.createElement('img'); big.src = img.currentSrc || img.src; big.alt = img.alt;
+      const x = document.createElement('button'); x.type = 'button'; x.className = 'lightbox-x'; x.setAttribute('aria-label', 'Close'); x.textContent = '×';
+      box.append(big, x);
+      if (img.alt) { const c = document.createElement('div'); c.className = 'lightbox-cap'; c.textContent = img.alt; box.append(c); }
+      const close = () => { box.remove(); document.removeEventListener('keydown', key); img.focus(); };
+      const key = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+      box.addEventListener('click', close); document.addEventListener('keydown', key);
+      document.body.append(box); x.focus();
+    };
+    img.addEventListener('click', open);
+    img.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } });
+  });
+</script>
+
