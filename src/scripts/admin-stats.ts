@@ -81,7 +81,7 @@ export function initStats(o: Opts) {
   type Chip = { kind: string; label: string; params: Record<string, string> };
   let chips: Chip[] = [];
   const params = () => Object.assign({}, ...chips.map((c) => c.params)) as Record<string, string>;
-  const KINDS: Record<string, string> = { country: 'country', city: 'place', path: 'page', ref: 'came from', device: 'device', browser: 'browser', os: 'system', guest: 'visitor', ip: 'visitor' };
+  const KINDS: Record<string, string> = { country: 'country', city: 'place', path: 'page', source: 'came from', device: 'device', model: 'model', browser: 'browser', os: 'system', visitor: 'visitor' };
   function addFilter(c: Chip) {
     // a city in another country than the country chip: the country chip goes (they'd never match together)
     chips = chips.filter((x) => x.kind !== c.kind && !(c.kind === 'city' && x.kind === 'country' && x.params.country !== c.params.country)
@@ -105,13 +105,17 @@ export function initStats(o: Opts) {
     country: (r: Row): Chip => ({ kind: 'country', label: `${flag(r.country)} ${country(r.country)}`, params: { country: r.country || '-' } }),
     city: (r: Row): Chip => ({ kind: 'city', label: `${flag(r.country)} ${placeName(r)}`, params: { country: r.country || '-', region: r.region || '-', city: r.city || '-' } }),
     page: (r: Row): Chip => ({ kind: 'path', label: `Page: ${cleanTitle(r.title, r.path)}`, params: { path: r.path } }),
-    ref: (r: Row): Chip => ({ kind: 'ref', label: r.ref_host ? `From ${r.ref_host}` : 'Direct visits', params: { ref: r.ref_host || '-' } }),
+    source: (r: Row): Chip => ({ kind: 'source', label: r.source ? `From ${r.source}` : 'Direct visits', params: { source: r.source || '-' } }),
+    model: (r: Row): Chip => ({ kind: 'model', label: r.model || 'Unknown model', params: { model: r.model || '-' } }),
     device: (r: Row): Chip => ({ kind: 'device', label: r.device || 'Unknown device', params: { device: r.device || '-' } }),
     browser: (r: Row): Chip => ({ kind: 'browser', label: r.browser || 'Unknown browser', params: { browser: r.browser || '-' } }),
     os: (r: Row): Chip => ({ kind: 'os', label: r.os || 'Unknown system', params: { os: r.os || '-' } }),
-    visitor: (v: Row): Chip => (v.guest ? { kind: 'guest', label: `Visitor: ${who(v)}`, params: { guest: v.guest } } : { kind: 'ip', label: `Visitor: ${v.ip}`, params: { ip: v.ip } }),
+    visitor: (v: Row): Chip => ({ kind: 'visitor', label: `Visitor: ${who(v)}`, params: visitorKey(v) }),
   };
-  const who = (v: Row) => v.name || (v.guest ? `Guest ${v.guest.slice(0, 6)}` : v.ip || 'Unknown visitor');
+  // a visitor is an IP address and the device on it: the phone model when the browser reports one, else its system
+  const deviceName = (v: Row) => v.model || [v.os, v.device].filter(Boolean).join(' ') || 'Unknown device';
+  const who = (v: Row) => `${deviceName(v)} · ${v.ip || 'no IP'}`;
+  const visitorKey = (v: Row): Record<string, string> => ({ ip: v.ip || '-', model: v.model || '-', ...(v.model ? {} : { os: v.os || '-' }) });
   const isOnline = (ts: number) => Date.now() - ts < 5 * 60e3;
 
   // ---------- overview ----------
@@ -252,7 +256,8 @@ export function initStats(o: Opts) {
   const sitePath = (path: string) => { try { const u = new URL(path, location.origin); return u.origin === location.origin ? u.pathname : null; } catch { return null; } };
   function renderTops(s: Row) {
     bars('st-pages', s.pages, { label: (r) => [cleanTitle(r.title, r.path), h('span', { class: 'st-sub' }, r.path)], value: (r) => r.views, unit: 'page views', chip: chipFor.page, open: (r) => sitePath(r.path) });
-    bars('st-refs', s.referrers, { label: (r) => [r.ref_host || 'Direct or unknown', r.ref_host ? null : h('span', { class: 'st-sub' }, 'typed in, a bookmark or an app')], chip: chipFor.ref, empty: 'No visits yet.' });
+    bars('st-refs', s.sources || [], { label: (r) => [r.source || 'Direct or unknown', r.source ? null : h('span', { class: 'st-sub' }, 'typed in, a bookmark, or an app that hides it')], chip: chipFor.source, empty: 'No visits yet.' });
+    bars('st-models', s.models || [], { label: (r) => [r.model || 'Unknown', r.model ? null : h('span', { class: 'st-sub' }, 'iPhones and some browsers keep it private')], chip: chipFor.model });
     bars('st-countries', s.countries, { label: (r) => [`${flag(r.country)} ${country(r.country)}`], chip: chipFor.country });
     bars('st-cities', s.cities, { label: (r) => [`${flag(r.country)} ${placeName(r)}`, h('span', { class: 'st-sub' }, country(r.country))], chip: chipFor.city });
     bars('st-devices', s.devices, { label: (r) => [r.device || 'Unknown'], chip: chipFor.device });
@@ -318,7 +323,7 @@ export function initStats(o: Opts) {
     } catch (x) { if (my === seq.posts) $('st-posts').replaceChildren(h('p', { class: 'st-empty' }, (x as Error).message)); }
   }
 
-  // ---------- visitors (one row per guest cookie): compact rows; tap one for everything about them ----------
+  // ---------- visitors (one row per IP address and device): compact rows; tap one for everything about them ----------
   let whoMode: 'all' | 'online' = 'all', visitorRows: Row[] = [], visitorsShown = 0;
   function setWho(m: 'all' | 'online') {
     whoMode = m;
@@ -346,9 +351,9 @@ export function initStats(o: Opts) {
     return h('button', { type: 'button', class: 'st-who', onclick: () => openPanel(v) },
       h('span', { class: 'st-who-flag', 'aria-hidden': 'true' }, flag(v.country)),
       h('span', { class: 'st-who-main' },
-        h('span', { class: 'st-who-name' }, h('b', null, who(v)), isOnline(v.last) ? h('span', { class: 'st-tag ok' }, 'online') : null,
-          v.name ? h('span', { class: 'st-tag' }, 'replied') : null, v.blocked ? h('span', { class: 'st-tag bad' }, 'blocked') : null),
-        h('span', { class: 'st-sub' }, [placeName(v), country(v.country)].join(', '), ' · ', [v.device, v.browser].filter(Boolean).join(' · ') || 'Unknown device')),
+        h('span', { class: 'st-who-name' }, h('b', null, deviceName(v)), h('code', { class: 'st-ip' }, v.ip || 'no IP'), h('span', { class: 'st-tag' }, v.source || 'direct'), isOnline(v.last) ? h('span', { class: 'st-tag ok' }, 'online') : null,
+          v.name ? h('span', { class: 'st-tag' }, `replied as ${v.name}`) : null, v.blocked ? h('span', { class: 'st-tag bad' }, 'blocked') : null),
+        h('span', { class: 'st-sub' }, [placeName(v), country(v.country)].join(', '), ' · ', v.org || 'unknown network', v.browser ? ` · ${v.browser}` : '')),
       h('span', { class: 'st-who-meta' }, h('span', null, h('b', null, num(v.views)), ` view${v.views === 1 ? '' : 's'}`), h('span', { class: 'st-sub', title: when(v.last) }, ago(v.last))),
       h('span', { class: 'st-chev', 'aria-hidden': 'true' }, '›'));
   }
@@ -366,7 +371,7 @@ export function initStats(o: Opts) {
       visits.forEach((v: Row) => list.append(h('li', null, h('button', { type: 'button', class: 'st-hit', onclick: () => openPanel(v, v) },
         h('span', { class: 'st-hit-when', title: when(v.ts) }, ago(v.ts)),
         h('span', { class: 'st-hit-main' }, h('span', { class: 'st-hit-page' }, cleanTitle(v.title, v.path)),
-          h('span', { class: 'st-sub' }, `${flag(v.country)} ${placeName(v)} · ${who(v)} · ${[v.device, v.browser].filter(Boolean).join(' · ')}`, v.ref_host ? ` · from ${v.ref_host}` : '')),
+          h('span', { class: 'st-sub' }, `${flag(v.country)} ${placeName(v)} · ${deviceName(v)} · ${v.ip || 'no IP'} · ${v.source ? `from ${v.source}` : 'direct'}`)),
         h('span', { class: 'st-chev', 'aria-hidden': 'true' }, '›')))));
       if (!list.children.length) $('st-visits').replaceChildren(h('p', { class: 'st-empty' }, 'No visits yet.'));
       visitsCursor = visits.length ? visits[visits.length - 1].id : visitsCursor;
@@ -379,7 +384,7 @@ export function initStats(o: Opts) {
   let panelMap: import('leaflet').Map | null = null;
   async function openPanel(row: Row, visit: Row | null = null) {
     const d = $('st-panel') as HTMLDialogElement;
-    const key: Record<string, string> | null = row.guest ? { guest: row.guest } : row.ip ? { ip: row.ip } : null;
+    const key: Record<string, string> | null = row.ip ? visitorKey(row) : null;
     const close = h('button', { type: 'button', class: 'st-panel-x', 'aria-label': 'Close', onclick: () => d.close() }, '×');
     d.replaceChildren(h('div', { class: 'st-panel-head' }, h('h3', { id: 'st-panel-title' }, `${flag(row.country)} ${who(row)}`), close), h('p', { class: 'st-empty' }, 'Loading…'));
     if (!d.open) d.showModal();
@@ -416,19 +421,18 @@ export function initStats(o: Opts) {
         ['Provider', at.org ? `${at.org}${at.asn ? ` (AS${at.asn})` : ''}` : at.asn ? `AS${at.asn}` : null],
       ])),
       h('section', null, h('h4', null, 'Device'), dl([
-        ['Type', at.device], ['System', at.os], ['Browser', at.browser], ['Screen', at.screen], ['Language', at.lang],
+        ['Model', at.model || 'Not reported (iPhones and some browsers keep it private)'], ['Type', at.device], ['System', at.os], ['Browser', at.browser], ['Screen', at.screen], ['Language', at.lang],
       ])),
       h('section', null, h('h4', null, 'Activity'), dl([
         ['First seen', v.first ? `${when(v.first)} (${ago(v.first)})` : null], ['Last seen', v.last ? `${when(v.last)} (${ago(v.last)})` : null],
         ['Page views', v.views != null ? `${num(v.views)} on ${num(v.pages)} page${v.pages === 1 ? '' : 's'} (last 90 days)` : null],
-        ['Came from', v.referrer || (visit && visit.referrer) || 'Direct or unknown'],
+        ['Came from', [v.source || (visit && visit.source) || 'Direct or unknown', (v.referrer || (visit && visit.referrer)) ? h('span', { class: 'st-sub' }, ` (${v.referrer || visit!.referrer})`) : null]],
         ['Replies', v.comments ? `${num(v.comments)}${v.name ? ` as “${v.name}”` : ''}` : null], ['Likes', v.likes ? num(v.likes) : null],
-        ['Guest id', v.guest ? h('code', null, v.guest) : 'No cookie (counted by IP)'],
       ])),
       h('section', null, h('h4', null, `Pages they read${hist.length >= 50 ? ' (latest 50)' : ''}`),
         hist.length ? h('ol', { class: 'st-trail' }, hist.map((x) => h('li', null, h('span', { class: 'st-sub', title: when(x.ts) }, ago(x.ts)), ' ',
           sitePath(x.path) ? h('a', { href: sitePath(x.path)!, target: '_blank', rel: 'noopener' }, cleanTitle(x.title, x.path)) : cleanTitle(x.title, x.path),
-          x.ref_host ? h('span', { class: 'st-sub' }, ` · from ${x.ref_host}`) : null, x.city && x.city !== at.city ? h('span', { class: 'st-sub' }, ` · ${flag(x.country)} ${x.city}`) : null)))
+          x.source ? h('span', { class: 'st-sub' }, ` · from ${x.source}`) : null, x.city && x.city !== at.city ? h('span', { class: 'st-sub' }, ` · ${flag(x.country)} ${x.city}`) : null)))
           : h('p', { class: 'st-empty' }, 'No visits recorded.')),
       h('div', { class: 'st-acts' },
         key ? h('button', { type: 'button', class: 'st-btn', onclick: () => { d.close(); addFilter(chipFor.visitor(v)); } }, 'Show only this visitor') : null,
@@ -481,7 +485,7 @@ export function initStats(o: Opts) {
       const list = $('cm-list').querySelector('ul') || $('cm-list').appendChild(h('ul', { class: 'st-log' }));
       d.comments.forEach((c: Row) => list.append(h('li', { class: 'st-visit cm-item', id: `cm-${c.id}` },
         h('div', { class: 'st-person-top' },
-          h('b', null, c.owner ? o.handle : c.name), h('span', { class: 'st-tag' }, c.owner ? 'author' : 'guest'), c.blocked ? h('span', { class: 'st-tag bad' }, 'blocked') : null,
+          h('b', null, c.owner ? o.handle : c.name), h('span', { class: 'st-tag' }, c.owner ? 'author' : 'reader'), c.blocked ? h('span', { class: 'st-tag bad' }, 'blocked') : null,
           c.reports ? h('span', { class: 'st-tag bad' }, `⚑ reported ${c.reports}×`) : null,
           h('span', { class: 'st-when', title: when(c.ts) }, ago(c.ts))),
         h('div', { class: 'st-line2' }, c.parent ? `answer to ${c.parent_name || 'a reply'} on ` : 'on ', h('a', { href: `${o.base}/posts/${c.post}/#comment-${c.id}`, target: '_blank', rel: 'noopener' }, t[c.post] || c.post),

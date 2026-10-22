@@ -246,8 +246,8 @@ test('admin analytics: totals, daily series, top lists, visitors with IP + locat
   const who = (await call('GET', '/admin/visitors?days=30', { token: GOOD })).data.visitors;
   assert.equal(who.length, 2);
   const alice = who.find((w) => w.guest === G1);
-  assert.deepEqual([alice.views, alice.pages, alice.name, alice.comments, alice.likes, alice.ip, alice.city], [2, 2, 'Alice', 1, 0, '203.0.113.7', 'Mumbai']);
-  assert.equal(who.find((w) => w.guest === G2).likes, 1);
+  assert.deepEqual([alice.views, alice.pages, alice.name, alice.comments, alice.likes, alice.ip, alice.city], [2, 2, 'Alice', 1, 1, '203.0.113.7', 'Mumbai']);   // counted by IP: the like came from the same address
+  assert.equal(who.find((w) => w.guest === G2).likes, 0);   // their like was sent from Alice's address
 });
 
 test('admin moderation: list comments with IPs, delete, block (and remove) an IP, unblock', async () => {
@@ -378,7 +378,7 @@ test('upgrading a database from before view counts fills them from the visits it
   env = { ...env, DB: { ...env.DB } };                               // a new Worker instance on the same database
   await call('GET', '/health');
   assert.deepEqual(rows('SELECT post, views FROM post_views ORDER BY post'), [{ post: 'hello-world', views: 2 }, { post: 'second-post', views: 1 }]);
-  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '4');
+  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '5');
 });
 
 test('admin: per-post stats, visits as CSV (formula-safe), online now', async () => {
@@ -396,7 +396,7 @@ test('admin: per-post stats, visits as CSV (formula-safe), online now', async ()
   assert.match(res.headers.get('content-type'), /text\/csv/);
   assert.match(res.headers.get('content-disposition'), /visits-7d\.csv/);
   const lines = csv.replace(/^﻿/, '').trim().split('\r\n');
-  assert.equal(lines[0], 'time,path,title,referrer,guest,ip,country,region,city,postal code,latitude,longitude,timezone,asn,network,browser,os,device,language,screen,bot');
+  assert.equal(lines[0], 'time,path,title,referrer,guest,ip,country,region,city,postal code,latitude,longitude,timezone,asn,network,came from,browser,os,device,model,language,screen,bot');
   assert.equal(lines.length, 3);
   assert.ok(lines[2].includes(`"'=HYPERLINK(""http://evil"",""x"")"`), lines[2]);   // not run as a formula
   assert.ok(lines[2].includes('203.0.113.7') && lines[2].includes('Mumbai,400070,19.07,72.87'), lines[2]);
@@ -502,7 +502,7 @@ test('upgrading a database from before answers (schema 2) adds them without losi
   const d = (await call('GET', '/posts/hello-world')).data;
   assert.deepEqual(d.comments.map((c) => [c.body, c.parent, c.likes]), [['old reply', null, 0]]);
   assert.ok(rows("SELECT name FROM sqlite_master WHERE name IN ('comment_likes', 'reports') ORDER BY name").length === 2);
-  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '4');
+  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '5');
 });
 
 test('upgrading a database from before postal codes (schema 3) keeps its visits and records postal codes from then on', async () => {
@@ -511,7 +511,46 @@ test('upgrading a database from before postal codes (schema 3) keeps its visits 
   env = { ...env, DB: { ...env.DB } };
   await call('POST', '/hit', { body: { path: '/whoami/', guest: G1 } });
   assert.deepEqual(rows('SELECT path, postal FROM visits ORDER BY id'), [{ path: '/', postal: null }, { path: '/whoami/', postal: '400070' }]);
-  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '4');
+  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '5');
+});
+
+test('where visits came from (tag, site or app) and the phone model; a visitor is an IP address and its device', async () => {
+  const IG_APP = 'Mozilla/5.0 (Linux; Android 14; SM-S918B Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/129.0 Mobile Safari/537.36 Instagram 350.0.0.0.1 Android';
+  const PIXEL = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36';
+  const REDUCED = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Mobile Safari/537.36';
+  const hit = (body, opts = {}) => call('POST', '/hit', { ...opts, body: { path: '/', guest: G1, ...body } });
+  await hit({ utm: 'IG' });                                                        // the link's own tag
+  await hit({ ref: 'https://l.instagram.com/?u=x' }, { ip: '198.51.100.31' });
+  await hit({ ref: 'https://www.linkedin.com/feed/' }, { ip: '198.51.100.32', ua: PIXEL });
+  await hit({}, { ip: '198.51.100.33', ua: IG_APP });                              // opened inside Instagram, no referrer
+  await hit({ ref: 'https://t.co/abc' }, { ip: '198.51.100.34', ua: REDUCED, body: undefined });
+  await hit({ utm: 'Newsletter<b>' }, { ip: '198.51.100.35' });
+  await hit({ model: 'SM-A546E' }, { ip: '198.51.100.36', ua: REDUCED });           // the model the browser reported
+  await hit({}, { ip: '198.51.100.37', ua: WIN_CHROME });
+  const v = rows('SELECT ip, source, model FROM visits ORDER BY id');
+  assert.deepEqual(v.map((r) => [r.source, r.model]), [['Instagram', 'iPhone'], ['Instagram', 'iPhone'], ['LinkedIn', 'Pixel 8'], ['Instagram', 'SM-S918B'],
+    ['X (Twitter)', null], ['newsletterb', 'iPhone'], [null, 'SM-A546E'], [null, null]]);
+  const s = (await call('GET', '/admin/stats?days=7', { token: GOOD })).data;
+  assert.deepEqual(s.sources.find((r) => r.source === 'Instagram'), { source: 'Instagram', views: 3, visitors: 3 });
+  assert.ok(s.models.some((r) => r.model === 'Pixel 8'));
+  assert.equal((await call('GET', '/admin/stats?days=7&source=LinkedIn', { token: GOOD })).data.views, 1);
+  assert.equal((await call('GET', '/admin/stats?days=7&source=-', { token: GOOD })).data.views, 2);   // direct
+  // one IP: two phones are two visitors; the same phone with another cookie is still one
+  await hit({ model: 'Pixel 7' }, { ip: '198.51.100.40', ua: REDUCED });
+  await hit({ model: 'SM-A546E', guest: G2 }, { ip: '198.51.100.40', ua: REDUCED });
+  await hit({ model: 'SM-A546E', guest: G1 }, { ip: '198.51.100.40', ua: REDUCED });
+  const people = (await call('GET', '/admin/visitors?days=7&ip=198.51.100.40', { token: GOOD })).data.visitors;
+  assert.deepEqual(people.map((p) => [p.model, p.views]).sort(), [['Pixel 7', 1], ['SM-A546E', 2]]);
+  assert.equal((await call('GET', '/admin/visits?ip=198.51.100.40&model=SM-A546E', { token: GOOD })).data.visits.length, 2);
+});
+
+test('upgrading from schema 4 names where older visits came from', async () => {
+  await call('POST', '/hit', { body: { path: '/', guest: G1, ref: 'https://www.linkedin.com/' } });
+  await call('POST', '/hit', { ua: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile/15E148 Instagram 300.0', body: { path: '/', guest: G2 } });
+  env.DB.sqlite.exec("UPDATE visits SET source = NULL; UPDATE meta SET v = '4' WHERE k = 'schema'");
+  env = { ...env, DB: { ...env.DB } };
+  await call('GET', '/posts/hello-world');
+  assert.deepEqual(rows('SELECT source FROM visits ORDER BY id').map((r) => r.source), ['LinkedIn', 'Instagram']);
 });
 
 test('clean-up: old reply likes and reports lose their IP; likes of deleted replies go', async () => {

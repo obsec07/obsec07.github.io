@@ -1086,7 +1086,15 @@ body:has(.st-panel[open]) { overflow: hidden; }
 .adm-body-tools .hint { margin: 0; }
 .adm-imgs { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .adm-imgs li { display: flex; align-items: center; gap: 10px; padding: 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--sub-bar); font-size: 12.5px; color: var(--ink-soft); overflow-wrap: anywhere; }
-.adm-imgs img { width: 56px; height: 42px; object-fit: cover; border-radius: 2px; flex: none; background: var(--card); }
+.adm-imgs img, .adm-imgs video { width: 56px; height: 42px; object-fit: cover; border-radius: 2px; flex: none; background: var(--card); }
+/* videos in posts, and the full-screen picture view (tap a picture in a post) */
+.prose video { display: block; width: 100%; max-height: 80vh; margin: 14px 0; background: #000; border: 1px solid var(--border); border-radius: 4px; }
+.prose img { cursor: zoom-in; }
+.lightbox { position: fixed; inset: 0; z-index: 3000; display: grid; place-items: center; padding: 18px; background: rgba(8, 10, 14, .92); cursor: zoom-out; touch-action: pinch-zoom; }
+.lightbox img { max-width: 100%; max-height: calc(100vh - 70px); object-fit: contain; border-radius: 3px; box-shadow: 0 10px 40px rgba(0,0,0,.5); background: #fff; }
+.lightbox-cap { position: absolute; left: 0; right: 0; bottom: 12px; text-align: center; color: #d8dbe2; font-size: 13px; padding: 0 16px; }
+.lightbox-x { position: absolute; top: 10px; right: 14px; font-size: 30px; line-height: 1; color: #fff; background: none; border: 0; cursor: pointer; }
+body:has(.lightbox) { overflow: hidden; }
 .adm-imgs span { flex: 1; min-width: 0; }
 .adm-imgs small { color: var(--muted); }
 .adm-draft-note { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin: 0 0 10px; background: var(--sub-bar); border: 1px solid var(--border-hi); color: var(--ink); }

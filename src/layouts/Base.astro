@@ -108,9 +108,21 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
           if (!id) { var a = new Uint8Array(16); crypto.getRandomValues(a); id = Array.prototype.map.call(a, function (b) { return (b < 16 ? '0' : '') + b.toString(16); }).join(''); }
           document.cookie = 'guest=' + id + '; Max-Age=31536000; Path=/; SameSite=Lax' + (location.protocol === 'https:' ? '; Secure' : '');
           try { if (sessionStorage.getItem('adm') || localStorage.getItem('adm')) return; } catch (e) {}
-          var data = JSON.stringify({ path: location.pathname, ref: document.referrer, title: document.title, guest: id, lang: navigator.language, screen: screen.width + 'x' + screen.height });
-          try { if (navigator.sendBeacon && navigator.sendBeacon(api + '/hit', data)) return; } catch (e) {}
-          fetch(api + '/hit', { method: 'POST', body: data, keepalive: true, headers: { 'Content-Type': 'text/plain' } }).catch(function () {});
+          // where the link came from when it says so (?utm_source=instagram, ?ref=linkedin), and the phone model the browser
+          // reports (Android Chrome does; iPhones don't), asked for at most 400 ms
+          var q = new URLSearchParams(location.search), utm = q.get('utm_source') || q.get('ref') || q.get('source') || '';
+          function send(model) {
+            var data = JSON.stringify({ path: location.pathname, ref: document.referrer, title: document.title, guest: id, lang: navigator.language, screen: screen.width + 'x' + screen.height, utm: utm, model: model || '' });
+            try { if (navigator.sendBeacon && navigator.sendBeacon(api + '/hit', data)) return; } catch (e) {}
+            fetch(api + '/hit', { method: 'POST', body: data, keepalive: true, headers: { 'Content-Type': 'text/plain' } }).catch(function () {});
+          }
+          var sent = false, once = function (m) { if (!sent) { sent = true; send(m); } };
+          try {
+            if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+              navigator.userAgentData.getHighEntropyValues(['model']).then(function (h) { once(h && h.model); }, function () { once(''); });
+              setTimeout(function () { once(''); }, 400);
+            } else once('');
+          } catch (e) { once(''); }
         })();
         // live numbers: Online statistics (footer), Messages (home page), your Messages and Reaction score (profile)
         (function () {
