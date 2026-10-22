@@ -1128,23 +1128,19 @@ body:has(.lightbox) { overflow: hidden; }
 .adm-write.adm-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
 .adm-write.adm-split .adm-body, .adm-write.adm-split .adm-preview { height: 70vh; max-height: none; }
 
-/* ---- minimal look: one clean sans-serif (Space Grotesk), sentence-case headings, light weights, soft shadows, gentle motion ---- */
+/* ---- minimal look: original fonts (Bungee + Roboto Slab), light weights, soft shadows, gentle motion ---- */
 :root {
-  --pixel: 'Space Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; --logo: var(--pixel); --body: var(--pixel);
   --shadow: 0 1px 2px rgba(18,32,58,.05); --shadow-hi: 0 6px 18px rgba(18,32,58,.09); --pop-shadow: 0 12px 32px rgba(18,32,58,.13);
 }
 :root[data-theme="dark"] { --shadow: 0 1px 2px rgba(0,0,0,.35); --shadow-hi: 0 8px 22px rgba(0,0,0,.45); --pop-shadow: 0 14px 34px rgba(0,0,0,.55); }
 body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; text-rendering: optimizeLegibility; }
-* { text-transform: none !important; }   /* no all-caps headings or labels */
-h1, h2, h3, h4, h5, h6 { font-weight: 500; letter-spacing: -.01em; }
+h1, h2, h3, h4, h5, h6 { font-weight: 500; }
 b, strong, th { font-weight: 500; }
 /* only titles stay semi-bold: menus, buttons, labels and the announcement read in regular/medium */
 .nav a, .nav-item > a, .sub-nav a, .newposts-btn, .save-btn, .st-btn, .theme-toggle, .chip, .pc-flag, .rc-new, .banner, .fstats dt, .fstats dd, .crumbs a { font-weight: 500; }
 .fstats dt { font-weight: 400; }
 .banner > span:last-child { font-weight: 500; }
-.logo .word { font-weight: 500; letter-spacing: -.02em; }
-.section-head h2, .page-head h1, .thread-head h1, .forum-title, .st-card h3, .st-h, .widget h3, .site-footer h4 { font-weight: 500; letter-spacing: -.01em; }
-.section-head .sub { font-family: var(--body); font-size: 13px; letter-spacing: 0; color: var(--muted); }
+.section-head h2, .page-head h1, .thread-head h1, .forum-title, .st-card h3, .st-h, .widget h3, .site-footer h4 { font-weight: 500; }
 .prose { line-height: 1.7; }
 .prose strong, .prose b { font-weight: 600; }   /* the only semi-bold left: emphasis inside posts */
 /* cards lift a little on hover, no hard offsets */
