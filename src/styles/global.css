@@ -1142,7 +1142,11 @@ b, strong, th { font-weight: 500; }
 .banner > span:last-child { font-weight: 500; }
 .section-head h2, .page-head h1, .thread-head h1, .forum-title, .st-card h3, .st-h, .widget h3, .site-footer h4 { font-weight: 500; }
 .prose { line-height: 1.7; }
-.prose strong, .prose b { font-weight: 600; }   /* the only semi-bold left: emphasis inside posts */
+.prose strong, .prose b { font-weight: 500; color: var(--ink); }   /* emphasis inside posts: medium weight, a shade darker/brighter than the text */
+/* dark mode: softer white for headings and bold so they don't glare */
+:root[data-theme="dark"] { --ink: #dfe3ea; }
+:root[data-theme="dark"] .prose :is(h1, h2, h3, h4) { color: #d5dae2; }
+:root[data-theme="dark"] .prose :is(strong, b) { color: inherit; }
 /* cards lift a little on hover, no hard offsets */
 .recent-card:hover { transform: translateY(-2px); }
 :where(.recent-card, .widget, .message, .st-card, .tl-row, .node, .post-item) { transition: transform .2s ease, box-shadow .2s ease, background-color .25s ease, border-color .25s ease; }
