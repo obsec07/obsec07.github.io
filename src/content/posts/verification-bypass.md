@@ -5,7 +5,7 @@ category: infosec
 description: How i bypassed verification
 tags:
   - Web
-draft: false
+draft: true
 ---
 
 # How I Found a Mobile Verification Bypass by Reusing a Telephone Update Request
