@@ -1300,3 +1300,15 @@ html.theme-vt, html.theme-vt * { transition: none !important; }
 .pf-ctl { grid-column: 1 / -1; display: flex; gap: 6px; justify-content: flex-end; }
 .pf-ctl .save-btn { min-width: 36px; padding: 4px 10px; }
 @media (max-width: 640px) { .pf-row { grid-template-columns: 1fr 1fr; } .pf-c-title, .pf-c-role { grid-column: 1 / -1; } }
+
+/* announcement: first thing on the home page, in a warm amber so it is noticed (the only accent color) */
+:root { --notice: #b45309; --notice-bg: #fdf3e2; --notice-ink: #ffffff; }
+:root[data-theme="dark"] { --notice: #f0a33a; --notice-bg: rgba(240, 163, 58, .1); --notice-ink: #0f131c; }
+.banner { border-color: color-mix(in srgb, var(--notice) 45%, var(--border-hi)); border-left: 5px solid var(--notice); background: var(--notice-bg); margin: 22px 0 0; }
+.banner + .pf-hero { margin-top: 16px; }
+.banner-tag { background: var(--notice); color: var(--notice-ink); }
+.banner-bell { transform-origin: 50% 2px; animation: bell-ring 1.4s ease 1s 2; }
+@keyframes bell-ring { 0%, 60%, 100% { transform: rotate(0); } 10% { transform: rotate(14deg); } 20% { transform: rotate(-12deg); } 30% { transform: rotate(9deg); } 40% { transform: rotate(-6deg); } 50% { transform: rotate(3deg); } }
+@media (prefers-reduced-motion: reduce) { .banner-bell { animation: none; } }
+/* achievements: titles a little stronger */
+.pf-achievements .tl-title { font-weight: 600; }
