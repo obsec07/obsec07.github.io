@@ -58,38 +58,7 @@
       "detail": ""
     }
   ],
-  "skills": [
-    {
-      "group": "Web security",
-      "items": [
-        "Authentication bypass",
-        "Access control / IDOR",
-        "LDAP injection",
-        "Recon"
-      ]
-    },
-    {
-      "group": "Offensive",
-      "items": [
-        "Active Directory",
-        "Linux privilege escalation",
-        "Red teaming",
-        "Hack The Box"
-      ]
-    },
-    {
-      "group": "Tools",
-      "items": [
-        "Burp Suite",
-        "Nmap",
-        "Impacket",
-        "NetExec",
-        "Hashcat",
-        "Python",
-        "Docker"
-      ]
-    }
-  ],
+  "skills": [],
   "experience": [],
   "resume": {
     "version": "",
