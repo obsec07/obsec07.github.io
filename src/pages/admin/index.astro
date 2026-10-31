@@ -13,6 +13,7 @@
 import Base from '../../layouts/Base.astro';
 import { SITE, STATIC_SITE, CATEGORY_LABELS, API_URL, API_STATE, profileUrl } from '../../config';
 import { CATEGORIES, LIMITS } from '../../lib/settings';
+import { LIMITS as PF_LIMITS } from '../../lib/portfolio';
 import { SOCIAL_NETWORKS } from '../../lib/socials';
 import SetupGuide from '../../components/SetupGuide.astro';
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
@@ -54,6 +55,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
           <button type="button" role="tab" data-tab="posts" class="on" aria-selected="true">Posts</button>
           <button type="button" role="tab" data-tab="profile" aria-selected="false">Profile</button>
           <button type="button" role="tab" data-tab="site" aria-selected="false">Site</button>
+          <button type="button" role="tab" data-tab="portfolio" aria-selected="false">Portfolio</button>
           <button type="button" role="tab" data-tab="stats" aria-selected="false">Analytics</button>
           <button type="button" role="tab" data-tab="comments" aria-selected="false">Comments</button>
         </div>
@@ -134,6 +136,30 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
           <div class="frow"><div class="lab">Who Am I</div><div class="fld"><textarea name="whoami" rows="12" class="adm-body"></textarea>
             <div class="hint">Markdown. <code>{'{handle}'}</code> becomes your username. Your email and links are listed under it automatically.</div></div></div>
           <div class="acct-actions"><span class="adm-err" id="adm-site-err" role="alert"></span><button class="save-btn" type="submit">Save site settings</button></div>
+        </form>
+
+        <form class="acct-form adm-pane adm-settings" id="adm-portfolio" data-pane="portfolio" novalidate hidden>
+          <div class="frow"><div class="lab">Resume</div><div class="fld">
+            <div class="pf-resume" id="pf-resume-now">No resume uploaded yet.</div>
+            <div class="pf-resume-btns">
+              <label class="save-btn adm-file">Upload new resume (PDF)<input type="file" name="resumeFile" accept="application/pdf,.pdf" /></label>
+              <button type="button" class="save-btn" id="pf-resume-del" hidden>Remove resume</button>
+            </div>
+            <div class="hint" id="pf-resume-hint">PDF, up to 5 MB. It replaces the old one; visitors get “Download resume” on the home page.</div>
+          </div></div>
+          <div class="frow"><div class="lab">Name</div><div class="fld"><input type="text" name="name" maxlength={PF_LIMITS.name} placeholder={SITE.handle} /><div class="hint">The big name at the top of the home page. Empty uses your username.</div></div></div>
+          <div class="frow"><div class="lab">Roles</div><div class="fld"><textarea name="roles" rows="4" placeholder={'Bug bounty hunter\nWeb application pentester'}></textarea><div class="hint">One per line (up to {PF_LIMITS.roles}). They type themselves out one after another under your name.</div></div></div>
+          <div class="frow"><div class="lab">Headline</div><div class="fld"><input type="text" name="headline" maxlength={PF_LIMITS.headline} /></div></div>
+          <div class="frow"><div class="lab">Intro</div><div class="fld"><textarea name="intro" rows="4" maxlength={PF_LIMITS.intro}></textarea></div></div>
+          <div class="frow"><div class="lab">Status</div><div class="fld"><input type="text" name="status" maxlength={PF_LIMITS.status} placeholder="Open to opportunities" /><div class="hint">A small badge with a green dot. Empty hides it.</div></div></div>
+          <div class="frow"><div class="lab">Location</div><div class="fld"><input type="text" name="location" maxlength={PF_LIMITS.location} placeholder="City, Country (optional)" /></div></div>
+          <div class="frow"><div class="lab">GitHub projects</div><div class="fld"><input type="text" name="github" maxlength="39" placeholder="GitHub username" autocomplete="off" spellcheck="false" /><div class="hint">Your newest and most starred public repositories show as Projects. Empty hides them.</div></div></div>
+          <div class="frow"><div class="lab">Achievements</div><div class="fld"><div class="pf-rows" id="pf-ach"></div><button type="button" class="save-btn" id="pf-ach-add">+ Add achievement</button>
+            <div class="hint">Shown at the top of the home page in this order. Bounties add up into the total; a link can be a post (/posts/…) or any https:// page.</div></div></div>
+          <div class="frow"><div class="lab">Skills</div><div class="fld"><textarea name="skillsText" rows="5" placeholder="Web security: Authentication bypass, IDOR, Recon"></textarea><div class="hint">One group per line: <code>Group: skill, skill, skill</code>.</div></div></div>
+          <div class="frow"><div class="lab">Experience</div><div class="fld"><div class="pf-rows" id="pf-exp"></div><button type="button" class="save-btn" id="pf-exp-add">+ Add experience</button>
+            <div class="hint">Optional. Leave “To” empty for a role you're still in.</div></div></div>
+          <div class="acct-actions"><span class="adm-err" id="adm-portfolio-err" role="alert"></span><button class="save-btn" type="submit">Save portfolio</button></div>
         </form>
 
         {API_STATE === 'ok' ? (
@@ -224,6 +250,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
 <script>
   import yaml from 'js-yaml';
   import { validate, clean } from '../../lib/settings';
+  import { validate as validatePortfolio, clean as cleanPortfolio, ACHIEVEMENT_KINDS, RESUME_FILE, RESUME_MAX } from '../../lib/portfolio';
   import { initStats } from '../../scripts/admin-stats';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
@@ -396,7 +423,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
         const head = (await gh(`git/ref/heads/${BRANCH}`, {}, REPO_API)).object.sha;
         const base = (await gh(`git/commits/${head}`, {}, REPO_API)).tree.sha;
         const tree = [];
-        for (const f of files) tree.push({ path: f.path, mode: '100644', type: 'blob', sha: (await gh('git/blobs', { method: 'POST', body: JSON.stringify({ content: f.content, encoding: 'base64' }) }, REPO_API)).sha });
+        for (const f of files) tree.push({ path: f.path, mode: '100644', type: 'blob', sha: f.remove ? null : (await gh('git/blobs', { method: 'POST', body: JSON.stringify({ content: f.content, encoding: 'base64' }) }, REPO_API)).sha });   // remove: deletes the file
         const t = await gh('git/trees', { method: 'POST', body: JSON.stringify({ base_tree: base, tree }) }, REPO_API);
         const c = await gh('git/commits', { method: 'POST', body: JSON.stringify({ message, tree: t.sha, parents: [head] }) }, REPO_API);
         try { await gh(`git/refs/heads/${BRANCH}`, { method: 'PATCH', body: JSON.stringify({ sha: c.sha }) }, REPO_API); return c.sha; }
@@ -680,6 +707,126 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       finally { btn.disabled = false; btn.textContent = label; }
     }
 
+    // ---- Portfolio: src/data/portfolio.json (+ public/resume.pdf), one commit ----
+    const PORTFOLIO_FILE = 'src/data/portfolio.json';
+    let portfolio = null, newResume = null, dropResume = false;
+    const ACH_FIELDS = [['kind', 'select', 'Kind'], ['title', 'text', 'Title', 100], ['org', 'text', 'From (NASA, a program, the issuer…)', 60], ['date', 'month', 'When'], ['amount', 'text', 'Bounty in $ (optional)', 12], ['link', 'text', 'Link: /posts/… or https://…', 300], ['detail', 'textarea', 'Details (optional)', 300]];
+    const JOB_FIELDS = [['role', 'text', 'Role', 100], ['org', 'text', 'Company / team', 60], ['from', 'month', 'From'], ['to', 'month', 'To (empty = now)'], ['detail', 'textarea', 'What you did (optional)', 300]];
+    async function loadPortfolio() {
+      const f = await gh(`${PORTFOLIO_FILE}?ref=${BRANCH}`);
+      let raw = {};
+      if (f) { try { raw = JSON.parse(dec.decode(fromB64(f.content))); } catch {} }
+      portfolio = cleanPortfolio(raw); newResume = null; dropResume = false; fillPortfolio();
+    }
+    function fillPortfolio() {
+      const f = $('adm-portfolio');
+      for (const k of ['name', 'headline', 'intro', 'location', 'status', 'github']) f.elements[k].value = portfolio[k];
+      f.elements.roles.value = portfolio.roles.join('\n');
+      f.elements.skillsText.value = portfolio.skills.map((g) => `${g.group}: ${g.items.join(', ')}`).join('\n');
+      renderRows('pf-ach', ACH_FIELDS, portfolio.achievements, 'achievements');
+      renderRows('pf-exp', JOB_FIELDS, portfolio.experience, 'experience');
+      resumeStatus(); showErrors(f, {});
+    }
+    function resumeStatus() {
+      const r = portfolio.resume, now = $('pf-resume-now');
+      if (newResume) now.textContent = `New: ${newResume.name} (${Math.max(1, Math.round(newResume.size / 1024))} KB). Press “Save portfolio” to publish it.`;
+      else if (dropResume) now.textContent = 'The resume will be removed when you save.';
+      else if (r.version) now.innerHTML = `<a href="${esc(sitePage(`/resume.pdf?v=${r.version}`))}" target="_blank" rel="noopener">resume.pdf</a>${r.updated ? ` · updated ${esc(new Date(r.updated + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }))}` : ''}`;
+      else now.textContent = 'No resume uploaded yet.';
+      $('pf-resume-del').hidden = !r.version || dropResume;
+    }
+    // a list of editable rows (achievements, experience): fields named like "achievements.2.title" so errors land on them
+    function renderRows(id, defs, items, key) {
+      const box = $(id); box.innerHTML = '';
+      items.forEach((it, i) => {
+        const row = document.createElement('div'); row.className = 'pf-row';
+        for (const [k, type, label, max] of defs) {
+          let el;
+          if (type === 'select') { el = document.createElement('select'); for (const o of ACHIEVEMENT_KINDS) el.add(new Option(o.label, o.key)); }
+          else if (type === 'textarea') { el = document.createElement('textarea'); el.rows = 2; }
+          else { el = document.createElement('input'); el.type = type; if (type === 'month') el.placeholder = 'YYYY-MM'; }
+          if (max) el.maxLength = max;
+          el.name = `${key}.${i}.${k}`; el.dataset.k = k; el.value = it[k] ?? ''; el.setAttribute('aria-label', label);
+          if (type !== 'select' && type !== 'month') el.placeholder = label;
+          const wrap = document.createElement('label'); wrap.className = `pf-cell pf-c-${k}`;
+          if (type === 'select' || type === 'month') wrap.append(Object.assign(document.createElement('span'), { textContent: label }));
+          wrap.append(el); row.append(wrap);
+        }
+        const ctl = document.createElement('div'); ctl.className = 'pf-ctl';
+        for (const [act, txt, tip] of [['up', '↑', 'Move up'], ['down', '↓', 'Move down'], ['rm', '✕', 'Remove']]) {
+          const b = document.createElement('button'); b.type = 'button'; b.className = 'save-btn'; b.dataset.act = act; b.textContent = txt; b.title = tip; b.setAttribute('aria-label', tip);
+          b.disabled = (act === 'up' && i === 0) || (act === 'down' && i === items.length - 1); ctl.append(b);
+        }
+        row.append(ctl); box.append(row);
+      });
+    }
+    const readRows = (id, defs) => [...$(id).children].map((row) => Object.fromEntries(defs.map(([k]) => [k, row.querySelector(`[data-k="${k}"]`).value.trim()])));
+    function rowsAction(id, defs, key, blank) {
+      $(id).addEventListener('click', (e) => {
+        const b = e.target.closest('[data-act]'); if (!b) return;
+        const items = readRows(id, defs), i = [...$(id).children].indexOf(b.closest('.pf-row'));
+        if (b.dataset.act === 'rm') items.splice(i, 1);
+        else { const j = b.dataset.act === 'up' ? i - 1 : i + 1; [items[i], items[j]] = [items[j], items[i]]; }
+        renderRows(id, defs, items, key);
+      });
+      $(`${id}-add`).addEventListener('click', () => {
+        const items = [...readRows(id, defs), blank()]; renderRows(id, defs, items, key);
+        $(id).lastElementChild.querySelector('input, select').focus();
+      });
+    }
+    rowsAction('pf-ach', ACH_FIELDS, 'achievements', () => ({ kind: 'bounty', title: '', org: '', date: '', amount: '', link: '', detail: '' }));
+    rowsAction('pf-exp', JOB_FIELDS, 'experience', () => ({ role: '', org: '', from: '', to: '', detail: '' }));
+    function readPortfolio() {
+      const f = $('adm-portfolio'), v = (k) => f.elements[k].value.trim();
+      return {
+        name: v('name'), headline: v('headline'), intro: v('intro'), location: v('location'), status: v('status'), github: v('github').replace(/^@/, ''),
+        roles: v('roles').split('\n').map((s) => s.trim()).filter(Boolean),
+        skills: v('skillsText').split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+          const m = /^([^:]+):(.*)$/.exec(l);
+          return m ? { group: m[1].trim(), items: m[2].split(',').map((s) => s.trim()).filter(Boolean) } : { group: 'Skills', items: l.split(',').map((s) => s.trim()).filter(Boolean) };
+        }),
+        achievements: readRows('pf-ach', ACH_FIELDS).map((a) => ({ ...a, amount: a.amount.replace(/[$,\s]/g, '') })),
+        experience: readRows('pf-exp', JOB_FIELDS),
+        resume: { ...portfolio.resume },
+      };
+    }
+    $('adm-portfolio').elements.resumeFile.addEventListener('change', async (e) => {
+      const file = e.target.files && e.target.files[0]; e.target.value = '';
+      if (!file) return;
+      const hint = $('pf-resume-hint');
+      if (file.type !== 'application/pdf' && !/\.pdf$/i.test(file.name)) { hint.textContent = 'Pick a PDF file.'; return; }
+      if (file.size > RESUME_MAX) { hint.textContent = `That PDF is too big (${(file.size / 1e6).toFixed(1)} MB). 5 MB max.`; return; }
+      const u8 = new Uint8Array(await file.arrayBuffer());
+      if (dec.decode(u8.subarray(0, 5)) !== '%PDF-') { hint.textContent = "That file isn't a real PDF."; return; }
+      newResume = { b64: toB64(u8), size: file.size, name: file.name }; dropResume = false; resumeStatus();
+    });
+    $('pf-resume-del').addEventListener('click', () => { if (confirm('Remove your resume from the site?')) { dropResume = true; newResume = null; resumeStatus(); } });
+    $('adm-portfolio').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = e.currentTarget, err = $('adm-portfolio-err'), btn = form.querySelector('button[type=submit]');
+      err.textContent = '';
+      if (!portfolio) { err.textContent = 'The portfolio is still loading. Try again in a moment.'; return; }
+      const next = readPortfolio(), errs = validatePortfolio(next);
+      for (const k of Object.keys(errs)) if (k.startsWith('skills')) { errs.skillsText = errs[k]; delete errs[k]; }
+      const general = ['achievements', 'experience'].filter((k) => errs[k]).map((k) => errs[k]);
+      if (!showErrors(form, errs) || general.length) { err.textContent = general[0] || 'Fix the highlighted fields.'; return; }
+      const files = [];
+      if (newResume) { files.push({ path: RESUME_FILE, content: newResume.b64 }); next.resume = { version: Date.now().toString(36), updated: today() }; }
+      else if (dropResume) { if (portfolio.resume.version) files.push({ path: RESUME_FILE, remove: true }); next.resume = { version: '', updated: '' }; }
+      const cleaned = cleanPortfolio(next);
+      if (!files.length && JSON.stringify(cleaned) === JSON.stringify(portfolio)) { note('Nothing changed.'); return; }
+      files.push({ path: PORTFOLIO_FILE, content: toB64(enc.encode(JSON.stringify(cleaned, null, 2) + '\n')) });
+      btn.disabled = true; btn.textContent = 'Saving…';
+      try {
+        const what = newResume ? 'your portfolio and resume' : dropResume ? 'your portfolio (resume removed)' : 'your portfolio';
+        const sha = await commitFiles(files, newResume ? 'Update resume and portfolio' : dropResume ? 'Remove resume' : 'Update portfolio');
+        portfolio = cleaned; newResume = null; dropResume = false; fillPortfolio();
+        note(`Saved ${what}.`);
+        followDeploy(sha, what, { pages: [sitePage('/'), ...(portfolio.resume.version ? [sitePage(`/resume.pdf?v=${portfolio.resume.version}`)] : [])] });
+      } catch (x) { if (!x.shown) { err.textContent = x.message; note(x.message, 'err'); } }
+      finally { btn.disabled = false; btn.textContent = 'Save portfolio'; }
+    });
+
     // ---- Analytics / Comments: the comments API (api/) ----
     const stats = root.dataset.api ? initStats({ api: root.dataset.api, token: () => session && session.token, handle: root.dataset.handle, base: BASE }) : null;
     // not set up yet: "Connect now" redeploys the site, whose workflow deploys the API once the Cloudflare secret exists.
@@ -704,7 +851,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
     }));
 
     // ---- tabs ----
-    const TABS = ['posts', 'profile', 'site', 'stats', 'comments'];
+    const TABS = ['posts', 'profile', 'site', 'portfolio', 'stats', 'comments'];
     function showTab(k) {
       if (!TABS.includes(k)) k = 'posts';
       document.querySelectorAll('.adm-tabs [data-tab]').forEach((t) => { const on = t.dataset.tab === k; t.classList.toggle('on', on); t.setAttribute('aria-selected', String(on)); });
@@ -721,13 +868,14 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       showTab(location.hash.slice(1));
       if (wantNew) openEditor(null);
       loadSettings().catch((x) => { if (!x.shown) note(`Couldn't load the settings: ${x.message}`, 'err'); });
+      loadPortfolio().catch((x) => { if (!x.shown) note(`Couldn't load the portfolio: ${x.message}`, 'err'); });
       if (stats) stats.badge();   // "Comments 3": replies you haven't seen yet
       try { await loadPosts(); } catch (x) { if (!x.shown) note(x.message, 'err'); }
     }
     // back to the login form; `why` explains it there (the app, and its note, are hidden now)
     function logout(why = '') {
       session = null; store.set(null); note(''); closeEditor(); watching++; $('adm-deploy').hidden = true;
-      settings = null; newPhoto = null;
+      settings = null; newPhoto = null; portfolio = null; newResume = null; dropResume = false;
       $('adm-app').hidden = true; $('adm-login').hidden = false; $('adm-token-err').textContent = why;
       document.dispatchEvent(new Event('adm:session'));
     }

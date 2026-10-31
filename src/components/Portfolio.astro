@@ -1,0 +1,213 @@
+---
+// The portfolio at the top of the home page: who you are, your resume, achievements, skills, experience and your
+// GitHub projects. Everything comes from src/data/portfolio.json (/admin → Portfolio); empty parts are left out.
+import { SITE, SOCIAL_LINKS, avatarUrl } from '../config';
+import { PORTFOLIO } from '../config';
+import { ACHIEVEMENT_KINDS, fmtMonth } from '../lib/portfolio';
+
+interface Props { writeups: number; ctf: number }
+const { writeups, ctf } = Astro.props;
+const P = PORTFOLIO;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const href = (p: string) => (/^https?:/i.test(p) ? p : (base + p).replace(/\/{2,}/g, '/') || '/');
+const name = P.name || SITE.handle;
+const resumeUrl = P.resume.version ? href(`/resume.pdf?v=${P.resume.version}`) : '';
+const fmtDay = (d: string) => new Date(d + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+const money = (n: number) => n.toLocaleString('en-US');
+
+// the numbers strip: only the ones that aren't zero
+const count = (k: string) => P.achievements.filter((a) => a.kind === k).length;
+const bounties = P.achievements.reduce((s, a) => s + (a.kind === 'bounty' ? Number(a.amount) || 0 : 0), 0);
+const stats = [
+  { pre: '$', n: bounties, label: 'in bug bounties' },
+  { n: count('hof'), label: count('hof') === 1 ? 'Hall of Fame' : 'Halls of Fame' },
+  { n: count('cert'), label: count('cert') === 1 ? 'certification' : 'certifications' },
+  { n: count('cve'), label: count('cve') === 1 ? 'CVE' : 'CVEs' },
+  { n: writeups, label: writeups === 1 ? 'writeup' : 'writeups' },
+  { n: ctf, label: 'CTF writeups' },
+].filter((s) => s.n > 0);
+
+const KIND = Object.fromEntries(ACHIEVEMENT_KINDS.map((k) => [k.key, k.label]));
+const ICON: Record<string, string> = {
+  bounty: '<path d="M12 2v20M17 6.5C17 4.6 14.8 3.5 12 3.5S7 4.6 7 6.6c0 4.8 10 2.6 10 7.5 0 2.1-2.2 3.4-5 3.4s-5.2-1.2-5.2-3.2"/>',
+  hof: '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',
+  cert: '<circle cx="12" cy="9" r="6"/><path d="m9 14.5-2 7 5-3 5 3-2-7"/>',
+  cve: '<path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6z"/><path d="m9 12 2 2 4-4"/>',
+  ctf: '<path d="M5 21V4h12l-2 4 2 4H5"/>',
+  award: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>',
+  other: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/>',
+};
+const kinds = ACHIEVEMENT_KINDS.filter((k) => count(k.key) > 0);
+const person = { '@context': 'https://schema.org', '@type': 'Person', name, alternateName: SITE.handle, jobTitle: P.headline || undefined,
+  description: P.intro || undefined, image: new URL(avatarUrl(SITE.handle), Astro.site).href, url: new URL(href('/'), Astro.site).href,
+  email: SITE.email ? `mailto:${SITE.email}` : undefined, sameAs: SOCIAL_LINKS.map((n) => n.url),
+  award: P.achievements.filter((a) => a.kind === 'hof' || a.kind === 'award').map((a) => [a.title, a.org].filter(Boolean).join(' · ')) };
+---
+<section class="pf-hero" id="about" aria-label="About me">
+  <div class="pf-photo"><img src={avatarUrl(SITE.handle)} alt={name} width="168" height="168" /></div>
+  <div class="pf-main">
+    {P.status && <span class="pf-status"><i aria-hidden="true"></i>{P.status}</span>}
+    <h1 class="pf-name"><span class="pf-nm">{name}</span><span class="pf-handle">@{SITE.handle}</span></h1>
+    {P.roles.length > 0 && (
+      <p class="pf-roles"><span class="sr-only">{P.roles.join(', ')}</span><span class="pf-typed" aria-hidden="true" data-roles={JSON.stringify(P.roles)}>{P.roles[0]}</span><span class="pf-caret" aria-hidden="true"></span></p>
+    )}
+    {P.headline && <p class="pf-headline">{P.headline}</p>}
+    {P.intro && <p class="pf-intro">{P.intro}</p>}
+    {(P.location || SITE.email) && (
+      <p class="pf-meta">
+        {P.location && <span><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>{P.location}</span>}
+        {SITE.email && <a href={`mailto:${SITE.email}`}><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>{SITE.email}</a>}
+      </p>
+    )}
+    <div class="pf-actions">
+      {resumeUrl && (
+        <a class="pf-btn pf-primary" href={resumeUrl} download={`${name.replace(/[^\w.-]+/g, '-')}-Resume.pdf`}>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
+          <span>Download resume{P.resume.updated && <small>Updated {fmtDay(P.resume.updated)}</small>}</span>
+        </a>
+      )}
+      {resumeUrl && <a class="pf-btn" href={resumeUrl} target="_blank" rel="noopener">View resume</a>}
+      {SITE.email && <a class="pf-btn" href={`mailto:${SITE.email}`}>Contact me</a>}
+      <a class="pf-btn pf-ghost" href={href('/#forums')}>Read my writeups →</a>
+    </div>
+    {SOCIAL_LINKS.length > 0 && (
+      <div class="pf-socials">
+        {SOCIAL_LINKS.map((n) => <a href={n.url} target="_blank" rel="me noopener" title={n.label} aria-label={n.label}><svg viewBox="0 0 24 24" width="17" height="17" fill={n.fill ? 'currentColor' : 'none'} stroke={n.fill ? 'none' : 'currentColor'} stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={n.icon} /></a>)}
+      </div>
+    )}
+  </div>
+  <script type="application/ld+json" is:inline set:html={JSON.stringify(person)} />
+</section>
+
+{stats.length > 0 && (
+  <div class="pf-stats">
+    {stats.map((s) => <div class="pf-stat"><span class="pf-v">{s.pre && <span class="pf-pre">{s.pre}</span>}<b class="pf-n">{money(s.n)}</b></span><span class="pf-l">{s.label}</span></div>)}
+  </div>
+)}
+
+{P.achievements.length > 0 && (
+  <section class="pf-sec" id="achievements">
+    <div class="pf-sec-head">
+      <h2>Achievements</h2>
+      {kinds.length > 1 && (
+        <div class="pf-filter" role="group" aria-label="Show">
+          <button type="button" class="on" data-kind="" aria-pressed="true">All <span>{P.achievements.length}</span></button>
+          {kinds.map((k) => <button type="button" data-kind={k.key} aria-pressed="false">{k.label} <span>{count(k.key)}</span></button>)}
+        </div>
+      )}
+    </div>
+    <div class="pf-ach-grid">
+      {P.achievements.map((a) => {
+        const Tag = a.link ? 'a' : 'div';
+        return (
+          <Tag class={`pf-ach k-${a.kind}`} data-kind={a.kind} {...(a.link ? { href: href(a.link), ...(/^https?:/i.test(a.link) ? { target: '_blank', rel: 'noopener' } : {}) } : {})}>
+            <span class="pf-ach-top">
+              <span class="pf-ach-ico"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={ICON[a.kind]} /></span>
+              <span class="pf-kind">{KIND[a.kind]}</span>
+              {a.date && <span class="pf-date">{fmtMonth(a.date)}</span>}
+            </span>
+            {a.amount && <span class="pf-amount">${money(Number(a.amount))}</span>}
+            <span class="pf-ach-title">{a.title}</span>
+            {a.org && <span class="pf-org">{a.org}</span>}
+            {a.detail && <span class="pf-detail">{a.detail}</span>}
+            {a.link && <span class="pf-more">{/^\/posts\//.test(a.link) ? 'Read the writeup' : 'See more'} →</span>}
+          </Tag>
+        );
+      })}
+    </div>
+  </section>
+)}
+
+{(P.skills.length > 0 || P.experience.length > 0) && (
+  <div class="pf-two">
+    {P.skills.length > 0 && (
+      <section class="pf-sec" id="skills">
+        <div class="pf-sec-head"><h2>Skills</h2></div>
+        <div class="pf-skills">
+          {P.skills.map((g) => <div class="pf-sg"><h3>{g.group}</h3><ul>{g.items.map((s) => <li>{s}</li>)}</ul></div>)}
+        </div>
+      </section>
+    )}
+    {P.experience.length > 0 && (
+      <section class="pf-sec" id="experience">
+        <div class="pf-sec-head"><h2>Experience</h2></div>
+        <ol class="pf-time">
+          {P.experience.map((j) => (
+            <li><span class="pf-when">{fmtMonth(j.from)}{(j.from || j.to) && ' – '}{j.to ? fmtMonth(j.to) : j.from ? 'now' : ''}</span>
+              <b>{j.role}</b>{j.org && <span class="pf-org"> · {j.org}</span>}{j.detail && <p>{j.detail}</p>}</li>
+          ))}
+        </ol>
+      </section>
+    )}
+  </div>
+)}
+
+{P.github && (
+  <section class="pf-sec" id="projects" data-gh={P.github} hidden>
+    <div class="pf-sec-head"><h2>Projects</h2><a class="pf-sec-link" href={`https://github.com/${P.github}`} target="_blank" rel="noopener">All on GitHub →</a></div>
+    <div class="pf-proj-grid"></div>
+  </section>
+)}
+
+<script is:inline>
+  // the role under the name types itself out, one after another (just swaps for people who turn animation off)
+  (function () {
+    var el = document.querySelector('.pf-typed'); if (!el) return;
+    var roles; try { roles = JSON.parse(el.getAttribute('data-roles')); } catch (e) { return; }
+    if (!roles || roles.length < 2) return;
+    var still = matchMedia('(prefers-reduced-motion: reduce)').matches, i = 0, n = roles[0].length, del = false;
+    function tick() {
+      if (document.hidden) return setTimeout(tick, 500);
+      if (still) { i = (i + 1) % roles.length; el.textContent = roles[i]; return setTimeout(tick, 2600); }
+      var r = roles[i];
+      if (!del && n >= r.length) { del = true; return setTimeout(tick, 1800); }
+      if (del && n === 0) { del = false; i = (i + 1) % roles.length; r = roles[i]; return setTimeout(tick, 250); }
+      n += del ? -1 : 1; el.textContent = r.slice(0, n);
+      setTimeout(tick, del ? 28 : 55 + Math.random() * 45);
+    }
+    setTimeout(tick, 1800);
+  })();
+  // achievements: filter by kind
+  (function () {
+    var bar = document.querySelector('.pf-filter'); if (!bar) return;
+    bar.addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-kind]'); if (!b) return;
+      var k = b.getAttribute('data-kind');
+      bar.querySelectorAll('button').forEach(function (x) { var on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
+      document.querySelectorAll('.pf-ach').forEach(function (c) { var show = !k || c.getAttribute('data-kind') === k; c.hidden = !show; if (show) { c.classList.remove('pf-pop'); void c.offsetWidth; c.classList.add('pf-pop'); } });
+    });
+  })();
+  // projects: your public GitHub repositories (not forks), the most starred and most recently worked on first.
+  // Kept for an hour in this tab so moving around the site doesn't ask GitHub again.
+  (function () {
+    var sec = document.getElementById('projects'); if (!sec) return;
+    var user = sec.getAttribute('data-gh'), key = 'gh-repos:' + user, grid = sec.querySelector('.pf-proj-grid');
+    var COLORS = { Python: '#3572A5', JavaScript: '#f1e05a', TypeScript: '#3178c6', Go: '#00ADD8', Shell: '#89e051', Rust: '#dea584', C: '#555555', 'C++': '#f34b7d', Java: '#b07219', PHP: '#4F5D95', Ruby: '#701516', HTML: '#e34c26', CSS: '#563d7c', Astro: '#ff5a03', PowerShell: '#012456' };
+    function ago(t) { var d = Math.floor((Date.now() - Date.parse(t)) / 864e5); return d < 1 ? 'today' : d < 2 ? 'yesterday' : d < 31 ? d + ' days ago' : d < 365 ? Math.floor(d / 30) + ' months ago' : Math.floor(d / 365) + ' years ago'; }
+    function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+    function show(repos) {
+      repos = repos.filter(function (r) { return !r.fork && !r.archived && r.name.toLowerCase() !== user.toLowerCase(); })
+        .sort(function (a, b) { return (b.stargazers_count - a.stargazers_count) || (Date.parse(b.pushed_at) - Date.parse(a.pushed_at)); }).slice(0, 6);
+      if (!repos.length) return;
+      repos.forEach(function (r) {
+        var a = el('a', 'pf-proj'); a.href = r.html_url; a.target = '_blank'; a.rel = 'noopener';
+        a.append(el('span', 'pf-proj-name', r.name), el('span', 'pf-proj-desc', r.description || 'No description yet.'));
+        var m = el('span', 'pf-proj-meta');
+        if (r.language) { var l = el('span', 'pf-lang', r.language); l.style.setProperty('--c', COLORS[r.language] || '#8a93a3'); m.append(l); }
+        if (r.stargazers_count) m.append(el('span', '', '★ ' + r.stargazers_count));
+        m.append(el('span', '', 'Updated ' + ago(r.pushed_at)));
+        a.append(m); grid.append(a);
+      });
+      sec.hidden = false;
+    }
+    try { var c = JSON.parse(sessionStorage.getItem(key) || 'null'); if (c && Date.now() - c.t < 36e5) return show(c.r); } catch (e) {}
+    fetch('https://api.github.com/users/' + encodeURIComponent(user) + '/repos?per_page=100&sort=pushed', { headers: { Accept: 'application/vnd.github+json' } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (r) {
+        if (!Array.isArray(r)) return;
+        var slim = r.map(function (x) { return { name: x.name, html_url: x.html_url, description: x.description, language: x.language, stargazers_count: x.stargazers_count, pushed_at: x.pushed_at, fork: x.fork, archived: x.archived }; });
+        try { sessionStorage.setItem(key, JSON.stringify({ t: Date.now(), r: slim })); } catch (e) {}
+        show(slim);
+      }).catch(function () {});
+  })();
+</script>

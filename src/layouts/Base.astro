@@ -165,7 +165,7 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
       // sections, cards and rows fade up gently as they scroll into view (not for people who turn animation off)
       (function () {
         if (!('IntersectionObserver' in window) || matchMedia('(prefers-reduced-motion: reduce)').matches || /\/admin\/?$/.test(location.pathname)) return;
-        var els = document.querySelectorAll('.section, .recent-card, .tl-row, .post-item, .widget, .message, .post-nav, .related, .reply-thread');
+        var els = document.querySelectorAll('.section, .recent-card, .tl-row, .post-item, .widget, .message, .post-nav, .related, .reply-thread, .pf-stat, .pf-ach, .pf-sec');
         var io = new IntersectionObserver(function (entries) {
           entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('rv-in'); io.unobserve(e.target); } });
         }, { rootMargin: '0px 0px -6% 0px' });
@@ -205,18 +205,18 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
           })(t0);
         }
         if (!still && !admin) {
-          document.querySelectorAll('.thread-head h1, .page-head h1').forEach(function (h) { decrypt(h, Math.min(900, 280 + h.textContent.length * 16)); });
+          document.querySelectorAll('.thread-head h1, .page-head h1, .pf-nm').forEach(function (h) { decrypt(h, Math.min(900, 280 + h.textContent.length * 16)); });
           var logo = document.querySelector('.logo');
           if (logo) logo.addEventListener('mouseenter', function () { logo.querySelectorAll('.word > span').forEach(function (s) { flicker(s, 420); }); });
           // the light under the pointer on cards and rows
           if (matchMedia('(hover: hover) and (pointer: fine)').matches) {
             document.addEventListener('pointermove', function (e) {
-              var c = e.target.closest && e.target.closest('.recent-card, .post-item, .row, .tl-row, .pn'); if (!c) return;
+              var c = e.target.closest && e.target.closest('.recent-card, .post-item, .row, .tl-row, .pn, .pf-ach, .pf-proj, .pf-stat'); if (!c) return;
               var r = c.getBoundingClientRect();
               c.style.setProperty('--mx', (e.clientX - r.left) + 'px'); c.style.setProperty('--my', (e.clientY - r.top) + 'px');
             }, { passive: true });
             document.addEventListener('pointerout', function (e) {
-              var c = e.target.closest && e.target.closest('.recent-card, .post-item, .row, .tl-row, .pn');
+              var c = e.target.closest && e.target.closest('.recent-card, .post-item, .row, .tl-row, .pn, .pf-ach, .pf-proj, .pf-stat');
               if (c && !c.contains(e.relatedTarget)) { c.style.removeProperty('--mx'); c.style.removeProperty('--my'); }
             });
           }
@@ -245,7 +245,7 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
               var to = num(e.target); if (isFinite(to) && to > 0) run(e.target, 0, to); else e.target._cw = 'done';
             });
           }, { threshold: .6 });
-          document.querySelectorAll('.fstats dd, .ac-stats b, .row .stats .n, [data-online], [data-ostat], [data-fstat]').forEach(function (el) {
+          document.querySelectorAll('.fstats dd, .ac-stats b, .row .stats .n, [data-online], [data-ostat], [data-fstat], .pf-n').forEach(function (el) {
             if (/^\d[\d,]*$/.test(el.textContent.trim())) { el._cw = 'wait'; io.observe(el); }
           });
         }

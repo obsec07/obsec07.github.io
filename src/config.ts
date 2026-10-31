@@ -4,8 +4,12 @@
 import rawSettings from './data/settings.json';
 import { clean } from './lib/settings';
 import { SOCIAL_NETWORKS } from './lib/socials';
+import rawPortfolio from './data/portfolio.json';
+import { clean as cleanPortfolio } from './lib/portfolio';
 
 export const SETTINGS = clean(rawSettings);
+// the portfolio at the top of the home page (src/data/portfolio.json, /admin → Portfolio)
+export const PORTFOLIO = cleanPortfolio(rawPortfolio);
 const S = SETTINGS;
 
 export const SITE = {
@@ -53,6 +57,16 @@ export const profileUrl = (name: string) => `${BASE}/members/${encodeURIComponen
 const B = S.blogs;
 export const NAV = [
   { label: 'Home', href: '/' },
+  {
+    label: 'Portfolio', href: '/#about', caret: true,
+    menu: [
+      { label: 'About me', href: '/#about' },
+      ...(PORTFOLIO.achievements.length ? [{ label: 'Achievements', href: '/#achievements' }] : []),
+      ...(PORTFOLIO.skills.length ? [{ label: 'Skills', href: '/#skills' }] : []),
+      ...(PORTFOLIO.github ? [{ label: 'Projects', href: '/#projects' }] : []),
+      ...(PORTFOLIO.resume.version ? [{ label: 'Resume (PDF)', href: `/resume.pdf?v=${PORTFOLIO.resume.version}` }] : []),
+    ],
+  },
   {
     label: 'Forums', href: '/', caret: true,
     menu: [

@@ -2,6 +2,7 @@
 import Base from '../layouts/Base.astro';
 import CategoryRow from '../components/CategoryRow.astro';
 import ShareBar from '../components/ShareBar.astro';
+import Portfolio from '../components/Portfolio.astro';
 import { SITE, SECTIONS, CATEGORY_LABELS, STATIC_SITE, avatarUrl, profileAttrs, sectionId } from '../config';
 import { getCollection } from 'astro:content';
 import { readingMinutes, isLive, summary, PIN_ICON } from '../lib/posts';
@@ -38,6 +39,8 @@ const pageUrl = new URL(href('/'), Astro.site).href;
 const chevron = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 15 12 9 18 15"/></svg>';
 ---
 <Base shownPosts={[...pinned, ...recent, ...latestPosts].map((p) => p.id)}>
+  <Portfolio writeups={all.length} ctf={all.filter((p) => p.data.category === 'ctf').length} />
+
   {SITE.banner && <div class="banner" role="note"><span class="banner-tag"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>Announcement</span><span>{SITE.banner}</span></div>}
 
   <div class="home-top">
@@ -45,8 +48,8 @@ const chevron = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" str
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3"/></svg>
     </button>
   </div>
-  <div class="home-head">
-    <h1 class="forum-title">{SITE.handle}</h1>
+  <div class="home-head" id="writeups">
+    <h2 class="forum-title">Writeups</h2>
     <a class="newposts-btn" href={href('/whats-new')}>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>
       New posts
