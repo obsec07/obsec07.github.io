@@ -1,23 +1,98 @@
 {
   "name": "Sardar",
   "headline": "Independent security researcher focused on web and application security.",
-  "roles": ["Bug bounty hunter", "Web application pentester", "Red team learner", "CTF player"],
+  "roles": [
+    "Bug bounty hunter",
+    "Web application pentester",
+    "Red team learner",
+    "CTF player"
+  ],
   "intro": "I hunt for bugs across authorized targets, break down how systems fail, and turn what I find into writeups others can learn from. My research has been recognised by NASA and Deutsche Telekom.",
   "location": "",
-  "status": "Open to opportunities",
+  "status": "",
   "github": "obsec07",
   "achievements": [
-    { "kind": "hof", "title": "Hall of Fame", "org": "NASA", "date": "", "amount": "", "link": "", "detail": "Acknowledged for responsibly reported security research." },
-    { "kind": "hof", "title": "Hall of Fame", "org": "Deutsche Telekom", "date": "", "amount": "", "link": "", "detail": "Acknowledged for responsibly reported security research." },
-    { "kind": "cert", "title": "Certified Red Team Analyst (CRTA)", "org": "", "date": "2026-10", "amount": "", "link": "/posts/how-i-passed-crta", "detail": "Passed the practical exam: recon, web vulnerabilities, Linux escalation and an Active Directory attack path." },
-    { "kind": "bounty", "title": "Authentication bypass", "org": "", "date": "2026-08", "amount": "1200", "link": "/posts/how-i-found-authentication-bypass", "detail": "" },
-    { "kind": "bounty", "title": "Blind LDAP injection in an identifier login", "org": "", "date": "2026-08", "amount": "450", "link": "/posts/blind-ldap-injection-in-an-identifier-login", "detail": "" }
+    {
+      "kind": "hof",
+      "title": "Hall of Fame",
+      "org": "NASA",
+      "date": "",
+      "amount": "",
+      "link": "",
+      "detail": "Acknowledged for responsibly reported security research."
+    },
+    {
+      "kind": "hof",
+      "title": "Hall of Fame",
+      "org": "Deutsche Telekom",
+      "date": "",
+      "amount": "",
+      "link": "",
+      "detail": "Acknowledged for responsibly reported security research."
+    },
+    {
+      "kind": "cert",
+      "title": "Certified Red Team Analyst (CRTA)",
+      "org": "",
+      "date": "2026-10",
+      "amount": "",
+      "link": "/posts/how-i-passed-crta",
+      "detail": "Passed the practical exam: recon, web vulnerabilities, Linux escalation and an Active Directory attack path."
+    },
+    {
+      "kind": "bounty",
+      "title": "Authentication bypass",
+      "org": "",
+      "date": "2026-08",
+      "amount": "1200",
+      "link": "/posts/how-i-found-authentication-bypass",
+      "detail": ""
+    },
+    {
+      "kind": "bounty",
+      "title": "Blind LDAP injection in an identifier login",
+      "org": "",
+      "date": "2026-08",
+      "amount": "450",
+      "link": "/posts/blind-ldap-injection-in-an-identifier-login",
+      "detail": ""
+    }
   ],
   "skills": [
-    { "group": "Web security", "items": ["Authentication bypass", "Access control / IDOR", "LDAP injection", "Recon"] },
-    { "group": "Offensive", "items": ["Active Directory", "Linux privilege escalation", "Red teaming", "Hack The Box"] },
-    { "group": "Tools", "items": ["Burp Suite", "Nmap", "Impacket", "NetExec", "Hashcat", "Python", "Docker"] }
+    {
+      "group": "Web security",
+      "items": [
+        "Authentication bypass",
+        "Access control / IDOR",
+        "LDAP injection",
+        "Recon"
+      ]
+    },
+    {
+      "group": "Offensive",
+      "items": [
+        "Active Directory",
+        "Linux privilege escalation",
+        "Red teaming",
+        "Hack The Box"
+      ]
+    },
+    {
+      "group": "Tools",
+      "items": [
+        "Burp Suite",
+        "Nmap",
+        "Impacket",
+        "NetExec",
+        "Hashcat",
+        "Python",
+        "Docker"
+      ]
+    }
   ],
   "experience": [],
-  "resume": { "version": "", "updated": "" }
+  "resume": {
+    "version": "",
+    "updated": ""
+  }
 }
