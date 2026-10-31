@@ -40,6 +40,17 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
         var m = document.querySelector('meta[name=theme-color]'); if (m) m.content = t === 'dark' ? '#0f131c' : '#faf6f1';
         var c = document.querySelector('meta[name=color-scheme]'); if (c) c.content = t;
       })();
+      // page-to-page transitions: none for people who turn animation off, and a transition the browser gives up
+      // on (it can) is not an error
+      (function () {
+        var still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        function quiet(e) {
+          var t = e.viewTransition; if (!t) return;
+          if (still) t.skipTransition();
+          t.ready.catch(function () {}); t.finished.catch(function () {}); if (t.updateCallbackDone) t.updateCallbackDone.catch(function () {});
+        }
+        addEventListener('pageswap', quiet); addEventListener('pagereveal', quiet);
+      })();
     </script>
     <title>{pageTitle}</title>
     <meta name="description" content={desc} />

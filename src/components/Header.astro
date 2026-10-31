@@ -88,9 +88,34 @@ const registerHref = href('/register');
         <a class="h-icon" href={href('/search')} title="Search" aria-label="search">
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         </a>
+        <button class="h-icon h-menu" id="h-menu" type="button" title="Menu" aria-label="menu" aria-expanded="false" aria-controls="m-menu">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path class="mm-a" d="M4 7h16"/><path class="mm-b" d="M4 12h16"/><path class="mm-c" d="M4 17h16"/></svg>
+        </button>
       </div>
     </nav>
   </div>
+  <!-- phones: every menu in one list (the header only has room for the icons) -->
+  <nav class="m-menu" id="m-menu" aria-label="Menu" hidden>
+    <div class="wrap">
+      {NAV.map((n) => (
+        <div class="m-group">
+          <a class={`m-top${n.label === tab ? ' active' : ''}`} href={href(n.href)}>{n.label}</a>
+          {n.menu && n.menu.map((m) => <a class="m-sub" href={href(m.href)}>{m.label}</a>)}
+        </div>
+      ))}
+    </div>
+  </nav>
+  <script is:inline>
+    (function () {
+      var b = document.getElementById('h-menu'), m = document.getElementById('m-menu'); if (!b || !m) return;
+      function set(open) { m.hidden = !open; b.setAttribute('aria-expanded', String(open)); b.classList.toggle('open', open); }
+      b.addEventListener('click', function (e) { e.stopPropagation(); set(m.hidden); });
+      m.addEventListener('click', function (e) { if (e.target.closest('a')) set(false); });
+      document.addEventListener('click', function (e) { if (!m.hidden && !m.contains(e.target)) set(false); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !m.hidden) { set(false); b.focus(); } });
+      addEventListener('resize', function () { if (!m.hidden && innerWidth > 539) set(false); });
+    })();
+  </script>
 </header>
 <div class="subnav">
   <div class="wrap">
