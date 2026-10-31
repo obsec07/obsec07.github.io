@@ -154,8 +154,15 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
           <div class="frow"><div class="lab">Status</div><div class="fld"><input type="text" name="status" maxlength={PF_LIMITS.status} placeholder="Open to opportunities" /><div class="hint">A small badge with a green dot. Empty hides it.</div></div></div>
           <div class="frow"><div class="lab">Location</div><div class="fld"><input type="text" name="location" maxlength={PF_LIMITS.location} placeholder="City, Country (optional)" /></div></div>
           <div class="frow"><div class="lab">GitHub projects</div><div class="fld"><input type="text" name="github" maxlength="39" placeholder="GitHub username" autocomplete="off" spellcheck="false" /><div class="hint">Your newest and most starred public repositories show as Projects. Empty hides them.</div></div></div>
-          <div class="frow"><div class="lab">Achievements</div><div class="fld"><div class="pf-rows" id="pf-ach"></div><button type="button" class="save-btn" id="pf-ach-add">+ Add achievement</button>
-            <div class="hint">Shown at the top of the home page in this order. Bounties add up into the total; a link can be a post (/posts/…) or any https:// page.</div></div></div>
+          <div class="frow"><div class="lab">Bug bounties</div><div class="fld"><div class="pf-rows" id="pf-bounty"></div><button type="button" class="save-btn" id="pf-bounty-add">+ Add bounty</button>
+            <div class="hint">Pick the writeup first: the finding, date and amount fill in from its post (a title like “$1200-Authentication bypass”). Amounts add up into the total on the home page.</div></div></div>
+          <div class="frow"><div class="lab">Hall of Fame</div><div class="fld"><div class="pf-rows" id="pf-hof"></div><button type="button" class="save-btn" id="pf-hof-add">+ Add Hall of Fame</button>
+            <div class="hint">One per organisation, e.g. NASA. The link can be their Hall of Fame page.</div></div></div>
+          <div class="frow"><div class="lab">Certifications</div><div class="fld"><div class="pf-rows" id="pf-cert"></div><button type="button" class="save-btn" id="pf-cert-add">+ Add certification</button>
+            <div class="hint">The link can be your credential page or a writeup (/posts/…).</div></div></div>
+          <div class="frow"><div class="lab">Other</div><div class="fld"><div class="pf-rows" id="pf-other"></div><button type="button" class="save-btn" id="pf-other-add">+ Add CVE, CTF or award</button>
+            <div class="hint">Optional. The writeup count on the home page updates by itself from your posts.</div></div></div>
+          <datalist id="pf-posts"></datalist>
           <div class="frow"><div class="lab">Skills</div><div class="fld"><textarea name="skillsText" rows="5" placeholder="Web security: Authentication bypass, IDOR, Recon"></textarea><div class="hint">One group per line: <code>Group: skill, skill, skill</code>.</div></div></div>
           <div class="frow"><div class="lab">Experience</div><div class="fld"><div class="pf-rows" id="pf-exp"></div><button type="button" class="save-btn" id="pf-exp-add">+ Add experience</button>
             <div class="hint">Optional. Leave “To” empty for a role you're still in.</div></div></div>
@@ -356,6 +363,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
           <div class="adm-acts"><button class="save-btn" type="button" data-edit="${i}">Edit</button><button class="save-btn adm-del" type="button" data-del="${i}">Delete</button></div>
         </div>`).join('') : '<div class="tl-empty">No posts yet. Click “+ New post”.</div>';
       postStats();
+      fillPostList();
     }
     // views, replies and likes next to each post (from the comments API, when it's on)
     async function postStats() {
@@ -710,7 +718,40 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
     // ---- Portfolio: src/data/portfolio.json (+ public/resume.pdf), one commit ----
     const PORTFOLIO_FILE = 'src/data/portfolio.json';
     let portfolio = null, newResume = null, dropResume = false;
-    const ACH_FIELDS = [['kind', 'select', 'Kind'], ['title', 'text', 'Title', 100], ['org', 'text', 'From (NASA, a program, the issuer…)', 60], ['date', 'month', 'When'], ['amount', 'text', 'Bounty in $ (optional)', 12], ['link', 'text', 'Link: /posts/… or https://…', 300], ['detail', 'textarea', 'Details (optional)', 300]];
+    // achievements are edited in groups; they are saved as one list in this order (the home page order)
+    const GROUPS = [
+      { key: 'hof', kind: 'hof', fields: [['org', 'text', 'Organisation, e.g. NASA', 60], ['date', 'month', 'When'], ['link', 'text', 'Link to their Hall of Fame page (optional)', 300], ['detail', 'textarea', 'Details (optional)', 300]] },
+      { key: 'cert', kind: 'cert', fields: [['title', 'text', 'Certification, e.g. Certified Red Team Analyst (CRTA)', 100], ['org', 'text', 'Issued by', 60], ['date', 'month', 'When'], ['link', 'text', 'Credential or writeup link (optional)', 300], ['detail', 'textarea', 'Details (optional)', 300]] },
+      { key: 'bounty', kind: 'bounty', fields: [['link', 'post', 'Writeup: pick a post (or https:// link)', 300], ['title', 'text', 'Finding, e.g. Authentication bypass', 100], ['amount', 'text', 'Bounty in $', 12], ['org', 'text', 'Program (optional)', 60], ['date', 'month', 'When'], ['detail', 'textarea', 'Details (optional)', 300]] },
+      { key: 'other', kind: null, fields: [['kind', 'select', 'Kind'], ['title', 'text', 'Title, e.g. CVE-2026-12345', 100], ['org', 'text', 'From (optional)', 60], ['date', 'month', 'When'], ['amount', 'text', 'Amount in $ (optional)', 12], ['link', 'text', 'Link (optional)', 300], ['detail', 'textarea', 'Details (optional)', 300]] },
+    ];
+    const OTHER_KINDS = ACHIEVEMENT_KINDS.filter((k) => !['hof', 'cert', 'bounty'].includes(k.key));
+    const groupOf = (a) => GROUPS.find((g) => g.kind === a.kind) || GROUPS[3];
+    const blankAchievement = (g) => ({ kind: g.kind || 'cve', title: '', org: '', date: '', amount: '', link: '', detail: '' });
+    const readGroup = (g) => readRows(`pf-${g.key}`, g.fields).map((row) => {
+      const a = { ...blankAchievement(g), ...row, kind: g.kind || row.kind };
+      if (a.kind === 'hof') a.title = 'Hall of Fame';
+      a.amount = a.amount.replace(/[$,\s]/g, '');
+      return a;
+    });
+    // your posts, offered in the bounty "Writeup" field
+    function fillPostList() {
+      const list = $('pf-posts'); if (!list) return;
+      list.replaceChildren(...posts.filter((p) => !p.data.draft).map((p) => new Option(p.data.title || p.slug, `/posts/${p.slug}`)));
+    }
+    // picking a writeup fills the empty fields from its post: "$1200-How i found Authentication Bypass"
+    $('pf-bounty').addEventListener('change', (e) => {
+      if (e.target.dataset.k !== 'link') return;
+      const post = posts.find((p) => `/posts/${p.slug}` === e.target.value.trim().replace(/\/$/, ''));
+      if (!post) return;
+      const row = e.target.closest('.pf-row'), field = (k) => row.querySelector(`[data-k="${k}"]`);
+      const m = /^\s*\$\s?([\d,.]+)\s*(k)?\s*[-–—:|]?\s*(.*)$/i.exec(post.data.title || '');
+      const amount = m ? Math.round(parseFloat(m[1].replace(/,/g, '')) * (m[2] ? 1000 : 1)) : NaN;
+      const title = ((m ? m[3] : post.data.title) || '').replace(/^how\s+i\s+found\s+(an?\s+)?/i, '').trim();
+      if (!field('title').value && title) field('title').value = title.charAt(0).toUpperCase() + title.slice(1);
+      if (!field('amount').value && Number.isFinite(amount)) field('amount').value = String(amount);
+      if (!field('date').value && post.data.date) field('date').value = isoDate(post.data.date).slice(0, 7);
+    });
     const JOB_FIELDS = [['role', 'text', 'Role', 100], ['org', 'text', 'Company / team', 60], ['from', 'month', 'From'], ['to', 'month', 'To (empty = now)'], ['detail', 'textarea', 'What you did (optional)', 300]];
     async function loadPortfolio() {
       const f = await gh(`${PORTFOLIO_FILE}?ref=${BRANCH}`);
@@ -723,7 +764,8 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       for (const k of ['name', 'headline', 'intro', 'location', 'status', 'github']) f.elements[k].value = portfolio[k];
       f.elements.roles.value = portfolio.roles.join('\n');
       f.elements.skillsText.value = portfolio.skills.map((g) => `${g.group}: ${g.items.join(', ')}`).join('\n');
-      renderRows('pf-ach', ACH_FIELDS, portfolio.achievements, 'achievements');
+      for (const g of GROUPS) renderRows(`pf-${g.key}`, g.fields, portfolio.achievements.filter((a) => groupOf(a) === g), g.key);
+      fillPostList();
       renderRows('pf-exp', JOB_FIELDS, portfolio.experience, 'experience');
       resumeStatus(); showErrors(f, {});
     }
@@ -742,9 +784,9 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
         const row = document.createElement('div'); row.className = 'pf-row';
         for (const [k, type, label, max] of defs) {
           let el;
-          if (type === 'select') { el = document.createElement('select'); for (const o of ACHIEVEMENT_KINDS) el.add(new Option(o.label, o.key)); }
+          if (type === 'select') { el = document.createElement('select'); for (const o of OTHER_KINDS) el.add(new Option(o.label, o.key)); }
           else if (type === 'textarea') { el = document.createElement('textarea'); el.rows = 2; }
-          else { el = document.createElement('input'); el.type = type; if (type === 'month') el.placeholder = 'YYYY-MM'; }
+          else { el = document.createElement('input'); el.type = type === 'post' ? 'text' : type; if (type === 'month') el.placeholder = 'YYYY-MM'; if (type === 'post') el.setAttribute('list', 'pf-posts'); }
           if (max) el.maxLength = max;
           el.name = `${key}.${i}.${k}`; el.dataset.k = k; el.value = it[k] ?? ''; el.setAttribute('aria-label', label);
           if (type !== 'select' && type !== 'month') el.placeholder = label;
@@ -774,7 +816,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
         $(id).lastElementChild.querySelector('input, select').focus();
       });
     }
-    rowsAction('pf-ach', ACH_FIELDS, 'achievements', () => ({ kind: 'bounty', title: '', org: '', date: '', amount: '', link: '', detail: '' }));
+    for (const g of GROUPS) rowsAction(`pf-${g.key}`, g.fields, g.key, () => blankAchievement(g));
     rowsAction('pf-exp', JOB_FIELDS, 'experience', () => ({ role: '', org: '', from: '', to: '', detail: '' }));
     function readPortfolio() {
       const f = $('adm-portfolio'), v = (k) => f.elements[k].value.trim();
@@ -785,7 +827,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
           const m = /^([^:]+):(.*)$/.exec(l);
           return m ? { group: m[1].trim(), items: m[2].split(',').map((s) => s.trim()).filter(Boolean) } : { group: 'Skills', items: l.split(',').map((s) => s.trim()).filter(Boolean) };
         }),
-        achievements: readRows('pf-ach', ACH_FIELDS).map((a) => ({ ...a, amount: a.amount.replace(/[$,\s]/g, '') })),
+        achievements: GROUPS.flatMap(readGroup),
         experience: readRows('pf-exp', JOB_FIELDS),
         resume: { ...portfolio.resume },
       };
@@ -808,6 +850,13 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       if (!portfolio) { err.textContent = 'The portfolio is still loading. Try again in a moment.'; return; }
       const next = readPortfolio(), errs = validatePortfolio(next);
       for (const k of Object.keys(errs)) if (k.startsWith('skills')) { errs.skillsText = errs[k]; delete errs[k]; }
+      // "achievements.4.amount" (the saved list) -> the field in its group, e.g. "bounty.0.amount"
+      const where = GROUPS.flatMap((g) => readRows(`pf-${g.key}`, g.fields).map((_, i) => [g, i]));
+      for (const k of Object.keys(errs)) {
+        const m = /^achievements\.(\d+)\.(\w+)$/.exec(k); if (!m || !where[+m[1]]) continue;
+        const [g, i] = where[+m[1]], f = g.fields.some(([name]) => name === m[2]) ? m[2] : g.fields[0][0];
+        errs[`${g.key}.${i}.${f}`] = errs[k]; delete errs[k];
+      }
       const general = ['achievements', 'experience'].filter((k) => errs[k]).map((k) => errs[k]);
       if (!showErrors(form, errs) || general.length) { err.textContent = general[0] || 'Fix the highlighted fields.'; return; }
       const files = [];

@@ -4,6 +4,8 @@
 import { SITE, SOCIAL_LINKS, avatarUrl } from '../config';
 import { PORTFOLIO } from '../config';
 import { ACHIEVEMENT_KINDS, fmtMonth } from '../lib/portfolio';
+import { getCollection } from 'astro:content';
+import { isLive } from '../lib/posts';
 
 interface Props { writeups: number; ctf: number }
 const { writeups, ctf } = Astro.props;
@@ -28,6 +30,14 @@ const stats = [
 ].filter((s) => s.n > 0);
 
 const KIND = Object.fromEntries(ACHIEVEMENT_KINDS.map((k) => [k.key, k.label]));
+// Tool posts (the Tools blog) named like a repository describe that project on the home page.
+const toolPosts = (await getCollection('posts', isLive)).filter((p) => p.data.category === 'tools');
+const tools = Object.fromEntries(toolPosts.map((p) => [p.id.toLowerCase(), { url: href('/posts/' + p.id), description: p.data.description }]));
+const chevron = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 15 12 9 18 15"/></svg>';
+// Hall of Fame entries read best by who gave them; everything else by its own title.
+const heading = (a: (typeof P.achievements)[number]) => (a.kind === 'hof' && a.org ? a.org : a.title);
+const line = (a: (typeof P.achievements)[number]) =>
+  [a.kind === 'hof' && a.org ? a.title : KIND[a.kind], a.kind !== 'hof' ? a.org : '', a.detail].filter(Boolean).join(' · ');
 const ICON: Record<string, string> = {
   bounty: '<path d="M12 2v20M17 6.5C17 4.6 14.8 3.5 12 3.5S7 4.6 7 6.6c0 4.8 10 2.6 10 7.5 0 2.1-2.2 3.4-5 3.4s-5.2-1.2-5.2-3.2"/>',
   hof: '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',
@@ -37,7 +47,6 @@ const ICON: Record<string, string> = {
   award: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>',
   other: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M6 18l2.5-2.5M15.5 8.5 18 6"/>',
 };
-const kinds = ACHIEVEMENT_KINDS.filter((k) => count(k.key) > 0);
 const person = { '@context': 'https://schema.org', '@type': 'Person', name, alternateName: SITE.handle, jobTitle: P.headline || undefined,
   description: P.intro || undefined, image: new URL(avatarUrl(SITE.handle), Astro.site).href, url: new URL(href('/'), Astro.site).href,
   email: SITE.email ? `mailto:${SITE.email}` : undefined, sameAs: SOCIAL_LINKS.map((n) => n.url),
@@ -86,36 +95,28 @@ const person = { '@context': 'https://schema.org', '@type': 'Person', name, alte
 )}
 
 {P.achievements.length > 0 && (
-  <section class="pf-sec" id="achievements">
-    <div class="pf-sec-head">
-      <h2>Achievements</h2>
-      {kinds.length > 1 && (
-        <div class="pf-filter" role="group" aria-label="Show">
-          <button type="button" class="on" data-kind="" aria-pressed="true">All <span>{P.achievements.length}</span></button>
-          {kinds.map((k) => <button type="button" data-kind={k.key} aria-pressed="false">{k.label} <span>{count(k.key)}</span></button>)}
-        </div>
-      )}
-    </div>
-    <div class="pf-ach-grid">
+  <div class="threadlist pf-achievements" id="achievements">
+    <div class="tl-head"><span>Achievements</span><span class="pf-tl-count">{P.achievements.length} {P.achievements.length === 1 ? 'entry' : 'entries'}</span></div>
+    <div class="tl-rows">
       {P.achievements.map((a) => {
-        const Tag = a.link ? 'a' : 'div';
+        const link = a.link ? { href: href(a.link), ...(/^https?:/i.test(a.link) ? { target: '_blank', rel: 'noopener' } : {}) } : null;
         return (
-          <Tag class={`pf-ach k-${a.kind}`} data-kind={a.kind} {...(a.link ? { href: href(a.link), ...(/^https?:/i.test(a.link) ? { target: '_blank', rel: 'noopener' } : {}) } : {})}>
-            <span class="pf-ach-top">
-              <span class="pf-ach-ico"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={ICON[a.kind]} /></span>
-              <span class="pf-kind">{KIND[a.kind]}</span>
-              {a.date && <span class="pf-date">{fmtMonth(a.date)}</span>}
-            </span>
-            {a.amount && <span class="pf-amount">${money(Number(a.amount))}</span>}
-            <span class="pf-ach-title">{a.title}</span>
-            {a.org && <span class="pf-org">{a.org}</span>}
-            {a.detail && <span class="pf-detail">{a.detail}</span>}
-            {a.link && <span class="pf-more">{/^\/posts\//.test(a.link) ? 'Read the writeup' : 'See more'} →</span>}
-          </Tag>
+          <div class="tl-row">
+            <span class="tl-av pf-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" set:html={ICON[a.kind]} /></span>
+            <div class="tl-main">
+              {link ? <a class="tl-title" {...link}>{heading(a)}</a> : <span class="tl-title">{heading(a)}</span>}
+              <div class="tl-sub">{line(a)}{a.amount && <span class="pf-phone"> · ${money(Number(a.amount))}</span>}{a.date && <span class="pf-phone"> · {fmtMonth(a.date)}</span>}</div>
+            </div>
+            <dl class="tl-stats">
+              <div><dt>Type:</dt><dd>{KIND[a.kind]}</dd></div>
+              <div><dt>{a.amount ? 'Reward:' : 'Proof:'}</dt><dd>{a.amount ? `$${money(Number(a.amount))}` : link ? <a {...link}>{/^\/posts\//.test(a.link) ? 'Writeup' : 'Link'}</a> : '–'}</dd></div>
+            </dl>
+            <div class="tl-last"><div class="tl-last-meta"><div class="tl-last-d">{a.date ? fmtMonth(a.date) : '–'}</div><div class="tl-last-u">{SITE.handle}</div></div></div>
+          </div>
         );
       })}
     </div>
-  </section>
+  </div>
 )}
 
 {(P.skills.length > 0 || P.experience.length > 0) && (
@@ -143,10 +144,19 @@ const person = { '@context': 'https://schema.org', '@type': 'Person', name, alte
 )}
 
 {P.github && (
-  <section class="pf-sec" id="projects" data-gh={P.github} hidden>
-    <div class="pf-sec-head"><h2>Projects</h2><a class="pf-sec-link" href={`https://github.com/${P.github}`} target="_blank" rel="noopener">All on GitHub →</a></div>
-    <div class="pf-proj-grid"></div>
-  </section>
+  <div class="section" id="projects" data-gh={P.github} data-tools={JSON.stringify(tools)} hidden>
+    <div class="section-head" role="button" tabindex="0" aria-label="collapse Projects">
+      <div>
+        <h2>Projects</h2>
+        <span class="sub">Open-source tools I build and use.</span>
+      </div>
+      <span class="chev" set:html={chevron} />
+    </div>
+    <div class="rows"><div class="rows-inner">
+      <div class="recent-grid pf-proj-grid"></div>
+      <a class="recent-all" href={`https://github.com/${P.github}`} target="_blank" rel="noopener">All on GitHub →</a>
+    </div></div>
+  </div>
 )}
 
 <script is:inline>
@@ -167,22 +177,13 @@ const person = { '@context': 'https://schema.org', '@type': 'Person', name, alte
     }
     setTimeout(tick, 1800);
   })();
-  // achievements: filter by kind
-  (function () {
-    var bar = document.querySelector('.pf-filter'); if (!bar) return;
-    bar.addEventListener('click', function (e) {
-      var b = e.target.closest('button[data-kind]'); if (!b) return;
-      var k = b.getAttribute('data-kind');
-      bar.querySelectorAll('button').forEach(function (x) { var on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-pressed', String(on)); });
-      document.querySelectorAll('.pf-ach').forEach(function (c) { var show = !k || c.getAttribute('data-kind') === k; c.hidden = !show; if (show) { c.classList.remove('pf-pop'); void c.offsetWidth; c.classList.add('pf-pop'); } });
-    });
-  })();
   // projects: your public GitHub repositories (not forks), the most starred and most recently worked on first.
   // Kept for an hour in this tab so moving around the site doesn't ask GitHub again.
   (function () {
     var sec = document.getElementById('projects'); if (!sec) return;
     var user = sec.getAttribute('data-gh'), key = 'gh-repos:' + user, grid = sec.querySelector('.pf-proj-grid');
-    var COLORS = { Python: '#3572A5', JavaScript: '#f1e05a', TypeScript: '#3178c6', Go: '#00ADD8', Shell: '#89e051', Rust: '#dea584', C: '#555555', 'C++': '#f34b7d', Java: '#b07219', PHP: '#4F5D95', Ruby: '#701516', HTML: '#e34c26', CSS: '#563d7c', Astro: '#ff5a03', PowerShell: '#012456' };
+    // a project with a post in the Tools blog links to it and borrows its description
+    var tools = {}; try { tools = JSON.parse(sec.getAttribute('data-tools') || '{}'); } catch (e) {}
     function ago(t) { var d = Math.floor((Date.now() - Date.parse(t)) / 864e5); return d < 1 ? 'today' : d < 2 ? 'yesterday' : d < 31 ? d + ' days ago' : d < 365 ? Math.floor(d / 30) + ' months ago' : Math.floor(d / 365) + ' years ago'; }
     function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
     function show(repos) {
@@ -190,13 +191,17 @@ const person = { '@context': 'https://schema.org', '@type': 'Person', name, alte
         .sort(function (a, b) { return (b.stargazers_count - a.stargazers_count) || (Date.parse(b.pushed_at) - Date.parse(a.pushed_at)); }).slice(0, 6);
       if (!repos.length) return;
       repos.forEach(function (r) {
-        var a = el('a', 'pf-proj'); a.href = r.html_url; a.target = '_blank'; a.rel = 'noopener';
-        a.append(el('span', 'pf-proj-name', r.name), el('span', 'pf-proj-desc', r.description || 'No description yet.'));
-        var m = el('span', 'pf-proj-meta');
-        if (r.language) { var l = el('span', 'pf-lang', r.language); l.style.setProperty('--c', COLORS[r.language] || '#8a93a3'); m.append(l); }
-        if (r.stargazers_count) m.append(el('span', '', '★ ' + r.stargazers_count));
-        m.append(el('span', '', 'Updated ' + ago(r.pushed_at)));
-        a.append(m); grid.append(a);
+        var tool = tools[r.name.toLowerCase()], a = el('a', 'recent-card pf-proj');
+        a.href = tool ? tool.url : r.html_url;
+        if (!tool) { a.target = '_blank'; a.rel = 'noopener'; }
+        var top = el('span', 'rc-top'); top.append(el('span', 'chip', r.language || 'Code'));
+        var desc = (tool && tool.description) || r.description;
+        a.append(top, el('span', 'rc-title', r.name));
+        if (desc) a.append(el('span', 'rc-desc', desc));
+        var meta = ['Updated ' + ago(r.pushed_at)];
+        if (r.stargazers_count) meta.unshift(r.stargazers_count + (r.stargazers_count === 1 ? ' star' : ' stars'));
+        a.append(el('span', 'rc-meta', meta.join(' · ')));
+        grid.append(a);
       });
       sec.hidden = false;
     }
