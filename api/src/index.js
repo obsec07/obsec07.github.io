@@ -33,7 +33,7 @@ const SCHEMA = [
     id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, path TEXT NOT NULL, title TEXT,
     referrer TEXT, ref_host TEXT, guest TEXT, ip TEXT,
     country TEXT, region TEXT, city TEXT, lat REAL, lon REAL, timezone TEXT, asn INTEGER, org TEXT,
-    browser TEXT, os TEXT, device TEXT, ua TEXT, lang TEXT, screen TEXT, bot INTEGER NOT NULL DEFAULT 0, postal TEXT, source TEXT, model TEXT)`,
+    browser TEXT, os TEXT, device TEXT, ua TEXT, lang TEXT, screen TEXT, bot INTEGER NOT NULL DEFAULT 0, postal TEXT, source TEXT, model TEXT, loc TEXT, boff INTEGER)`,
   'CREATE INDEX IF NOT EXISTS visits_ts ON visits (ts)',
   'CREATE INDEX IF NOT EXISTS visits_ip_ts ON visits (ip, ts)',
   'CREATE INDEX IF NOT EXISTS visits_guest ON visits (guest, ts)',
@@ -58,10 +58,10 @@ const SCHEMA = [
   // all-time views per post (visits are deleted after 90 days; these counts stay). One per visitor per 30 minutes.
   `CREATE TABLE IF NOT EXISTS post_views (post TEXT PRIMARY KEY, views INTEGER NOT NULL DEFAULT 0)`,
 ];
-const SCHEMA_VERSION = '5';
+const SCHEMA_VERSION = '6';
 // columns added after a table was first made (a new database gets them from CREATE TABLE): 3 answers, 4 postal codes,
 // 5 where a visit came from (Instagram, LinkedIn…) and the phone model
-const COLUMNS = [['comments', 'parent INTEGER'], ['visits', 'postal TEXT'], ['visits', 'source TEXT'], ['visits', 'model TEXT']];
+const COLUMNS = [['comments', 'parent INTEGER'], ['visits', 'postal TEXT'], ['visits', 'source TEXT'], ['visits', 'model TEXT'], ['visits', 'loc TEXT'], ['visits', 'boff INTEGER']];
 // a visit's post, from its path ('/posts/<slug>/', also under a base path)
 const SLUG_SQL = "rtrim(substr(path, instr(path, '/posts/') + 7), '/')";
 
@@ -174,6 +174,31 @@ function client(req) {
     asn: num(cf.asn), org: cf.asOrganization || null, ua, ...parseUA(ua),
   };
 }
+
+// ---- how far to trust the place Cloudflare gives for an IP address ----
+// The place is where the IP address is registered or routed, not a GPS position. Two things make it plainly wrong:
+// a VPN, proxy, iCloud Private Relay or cloud network (the place is the server's), and a device clock in a different
+// time zone from that place. Those visits are kept but marked, and left off the map and the city list.
+const HOSTING = /\b(amazon|aws|google cloud|google llc|microsoft|azure|digitalocean|ovh|hetzner|linode|akamai|cloudflare|fastly|oracle|vultr|choopa|contabo|leaseweb|m247|datacamp|cdn77|scaleway|alibaba|tencent|hostinger|ionos|hosting|vpn|proxy|private relay|nordvpn|expressvpn|surfshark|mullvad|proton|data ?cent(?:er|re))\b/i;
+function tzOffset(tz, at = new Date()) {
+  try {
+    const part = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'longOffset' }).formatToParts(at).find((x) => x.type === 'timeZoneName');
+    const m = /^GMT(?:([+-])(\d{1,2})(?::(\d{2}))?)?$/.exec(part ? part.value : '');
+    return m ? (m[1] ? (m[1] === '-' ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3] || 0)) : 0) : null;
+  } catch { return null; }
+}
+// 'ok' | 'vpn' | 'mismatch', or null when there is no place to judge. boff: the device's UTC offset in minutes.
+function locationTrust(c, boff) {
+  if (!c.country) return null;
+  if (c.org && HOSTING.test(c.org)) return 'vpn';
+  if (boff != null && c.timezone) {
+    const ip = tzOffset(c.timezone);
+    if (ip != null && Math.abs(ip - boff) > 30) return 'mismatch';
+  }
+  return 'ok';
+}
+const deviceOffset = (v) => (Number.isInteger(v) && Math.abs(v) <= 14 * 60 ? v : null);
+const TRUSTED = "(loc IS NULL OR loc = 'ok')";
 
 // ---- which sites may call this API (the blog itself; ALLOWED_ORIGINS adds more, "*" allows any; none set: none) ----
 function origins(env) {
@@ -301,11 +326,12 @@ async function hit(req, env) {
     const again = await env.DB.prepare(`SELECT 1 x FROM visits WHERE ${guest ? 'guest' : 'ip'} = ? AND path = ? AND ts > ? LIMIT 1`).bind(guest || c.ip, path, now() - 30 * MIN).first();
     if (!again) view = env.DB.prepare('INSERT INTO post_views (post, views) VALUES (?, 1) ON CONFLICT (post) DO UPDATE SET views = views + 1').bind(pm[1]);
   }
+  const boff = deviceOffset(b.off);
   const insert = env.DB.prepare(`INSERT INTO visits (ts, path, title, referrer, ref_host, guest, ip, country, region, city, postal, lat, lon, timezone, asn, org,
-      browser, os, device, ua, lang, screen, bot, source, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      browser, os, device, ua, lang, screen, bot, source, model, loc, boff) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(now(), path, str(b.title, 200) || null, ref && ref.referrer, ref && ref.host, guest, c.ip || null,
       c.country, c.region, c.city, c.postal, c.lat, c.lon, c.timezone, c.asn, c.org, c.browser, c.os, c.device, c.ua || null,
-      str(b.lang, 20) || null, screen, c.bot ? 1 : 0, sourceOf(b.utm, ref && ref.host, c.ua), modelOf(b.model, c.ua));
+      str(b.lang, 20) || null, screen, c.bot ? 1 : 0, sourceOf(b.utm, ref && ref.host, c.ua), modelOf(b.model, c.ua), locationTrust(c, boff), boff);
   await env.DB.batch(view ? [insert, view] : [insert]);
   return empty();
 }
@@ -520,17 +546,21 @@ async function stats(req, env) {
     env.DB.prepare(`SELECT ${bucket} b, COUNT(*) views, COUNT(DISTINCT ${WHO}) visitors ${V} GROUP BY b ORDER BY b`).bind(...at(since)),
     env.DB.prepare(`SELECT path, MAX(title) title, COUNT(*) views, COUNT(DISTINCT ${WHO}) visitors ${V} GROUP BY path ORDER BY views DESC LIMIT 50`).bind(...at(since)),
     top('country'),
-    env.DB.prepare(`SELECT city, region, country, COUNT(*) views, COUNT(DISTINCT ${WHO}) visitors ${V} AND city IS NOT NULL GROUP BY city, region, country ORDER BY visitors DESC, views DESC LIMIT 50`).bind(...at(since)),
+    env.DB.prepare(`SELECT city, region, country, COUNT(*) views, COUNT(DISTINCT ${WHO}) visitors ${V} AND city IS NOT NULL AND ${TRUSTED} GROUP BY city, region, country ORDER BY visitors DESC, views DESC LIMIT 50`).bind(...at(since)),
     top('ref_host'),   // null: typed in, a bookmark, or a site that hides where people came from
     top('browser'), top('os'), top('device'), top('source'), top('model'),
-    // the map: each place once, where Cloudflare puts it (the middle of the city, or of the postal area)
+    // the map: each known city once, where Cloudflare puts it (the middle of the city, or of the postal area). A visit
+    // with only a country would land in the middle of that country, and a VPN/mismatched one in the wrong place: neither
+    // is drawn.
     env.DB.prepare(`SELECT city, region, country, ROUND(AVG(lat), 4) lat, ROUND(AVG(lon), 4) lon, COUNT(*) views, COUNT(DISTINCT ${WHO}) visitors
-      ${V} AND lat IS NOT NULL AND lon IS NOT NULL GROUP BY city, region, country ORDER BY visitors DESC LIMIT 300`).bind(...at(since)),
+      ${V} AND city IS NOT NULL AND lat IS NOT NULL AND lon IS NOT NULL AND ${TRUSTED} GROUP BY city, region, country ORDER BY visitors DESC LIMIT 300`).bind(...at(since)),
+    env.DB.prepare(`SELECT COUNT(DISTINCT ${WHO}) n ${V} AND loc IN ('vpn', 'mismatch')`).bind(...at(since)),
   ];
-  const [tot, live, cm, lk, bots, series, pages, countries, cities, refs, browsers, oses, devices, sources, models, places] = (await env.DB.batch(q)).map((r) => r.results);
+  const [tot, live, cm, lk, bots, series, pages, countries, cities, refs, browsers, oses, devices, sources, models, places, doubtful] = (await env.DB.batch(q)).map((r) => r.results);
   return json({
     days, views: tot[0].views, visitors: tot[0].visitors, live: live[0].n, comments: cm[0].n, likes: lk[0].n, bots: bots[0].n,
     series, pages, countries, cities, referrers: refs, browsers, os: oses, devices, sources, models, places,
+    unreliable_locations: doubtful[0].n,
   });
 }
 // every post with its all-time views, and views / visitors in the range, likes and replies
@@ -555,8 +585,8 @@ async function adminPosts(req, env) {
 // formula (=, +, -, @) get a leading apostrophe: visitors choose what goes in titles and referrers.
 async function visitsCsv(req, env) {
   const url = new URL(req.url), { days, since } = range(url), f = visitFilter(url.searchParams);
-  const cols = ['time', 'path', 'title', 'referrer', 'guest', 'ip', 'country', 'region', 'city', 'postal code', 'latitude', 'longitude', 'timezone', 'asn', 'network', 'came from', 'browser', 'os', 'device', 'model', 'language', 'screen', 'bot'];
-  const rows = (await env.DB.prepare(`SELECT ts, path, title, referrer, guest, ip, country, region, city, postal, lat, lon, timezone, asn, org, source, browser, os, device, model, lang, screen, bot
+  const cols = ['time', 'path', 'title', 'referrer', 'guest', 'ip', 'country', 'region', 'city', 'postal code', 'latitude', 'longitude', 'timezone', 'location check', 'asn', 'network', 'came from', 'browser', 'os', 'device', 'model', 'language', 'screen', 'bot'];
+  const rows = (await env.DB.prepare(`SELECT ts, path, title, referrer, guest, ip, country, region, city, postal, lat, lon, timezone, loc, asn, org, source, browser, os, device, model, lang, screen, bot
     FROM visits WHERE ts > ?${f.sql} ORDER BY id DESC LIMIT 20000`).bind(since, ...f.args).all()).results;
   const cell = (v) => {
     let t = v == null ? '' : String(v);
@@ -564,7 +594,7 @@ async function visitsCsv(req, env) {
     return /[",\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
   };
   const lines = [cols.join(','), ...rows.map((r) => [new Date(r.ts).toISOString(), r.path, r.title, r.referrer, r.guest, r.ip, r.country, r.region, r.city,
-    r.postal, r.lat, r.lon, r.timezone, r.asn, r.org, r.source || 'direct', r.browser, r.os, r.device, r.model, r.lang, r.screen, r.bot ? 'yes' : 'no'].map(cell).join(','))];
+    r.postal, r.lat, r.lon, r.timezone, r.loc || '', r.asn, r.org, r.source || 'direct', r.browser, r.os, r.device, r.model, r.lang, r.screen, r.bot ? 'yes' : 'no'].map(cell).join(','))];
   return new Response('\ufeff' + lines.join('\r\n') + '\r\n', { headers: { 'content-type': 'text/csv; charset=utf-8',
     'content-disposition': `attachment; filename="visits-${days === 1 ? '24h' : `${days}d`}.csv"`, 'cache-control': 'no-store' } });
 }
@@ -577,7 +607,7 @@ async function visits(req, env) {
   if (p.get('days')) { where.push('v.ts > ?'); args.push(range(url).since); }
   if (p.get('bots') !== '1') where.push('v.bot = 0');
   const rows = await env.DB.prepare(`SELECT v.id, v.ts, v.path, v.title, v.referrer, v.ref_host, v.guest, v.ip, v.country, v.region, v.city, v.postal, v.lat, v.lon, v.timezone,
-      v.asn, v.org, v.browser, v.os, v.device, v.lang, v.screen, v.bot, v.source, v.model,
+      v.asn, v.org, v.browser, v.os, v.device, v.lang, v.screen, v.bot, v.source, v.model, v.loc, v.boff,
       (SELECT name FROM comments c WHERE c.ip = v.ip AND c.owner = 0 ORDER BY c.ts DESC LIMIT 1) name,
       EXISTS (SELECT 1 FROM blocks b WHERE b.ip = v.ip) blocked
     FROM visits v WHERE ${where.join(' AND ')}${f.sql} ORDER BY v.id DESC LIMIT ?`).bind(...args, ...f.args, limit).all();
@@ -592,7 +622,7 @@ async function visitors(req, env) {
       SELECT ${WHO} who, MIN(ts) first, MAX(ts) last, MIN(id) first_id, MAX(id) last_id, COUNT(*) views, COUNT(DISTINCT path) pages
       FROM visits WHERE ts > ? AND bot = 0${f.sql} GROUP BY who ${p.get('online') === '1' ? 'HAVING MAX(ts) > ?' : ''} ORDER BY last DESC LIMIT ?)
     SELECT agg.first, agg.last, agg.views, agg.pages, v.guest, v.ip, v.country, v.region, v.city, v.postal, v.lat, v.lon, v.timezone,
-      v.asn, v.org, v.browser, v.os, v.device, v.lang, v.screen, v.path, v.title, v.model,
+      v.asn, v.org, v.browser, v.os, v.device, v.lang, v.screen, v.path, v.title, v.model, v.loc, v.boff,
       (SELECT source FROM visits fv WHERE fv.id = agg.first_id) source,
       (SELECT referrer FROM visits fv WHERE fv.id = agg.first_id) referrer,
       (SELECT name FROM comments c WHERE c.ip = v.ip AND c.owner = 0 ORDER BY c.ts DESC LIMIT 1) name,
