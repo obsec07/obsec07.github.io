@@ -100,6 +100,14 @@ export function initStats(o: Opts) {
   function filtersChanged() { renderChips(); loadStats(); loadPostStats(); loadVisitors(true); loadVisits(true); }
   // the query for the API: period, the admin's time zone (for the daily chart) and the filters
   const query = (extra: Record<string, string> = {}) => new URLSearchParams({ days: String(days), ...params(), ...extra }).toString();
+  // how far to trust the place (the API's location check): a VPN/cloud network, or a device clock in another time zone
+  const doubtful = (r: Row) => r.loc === 'vpn' || r.loc === 'mismatch';
+  const utc = (m: number) => `UTC${m < 0 ? '−' : '+'}${String(Math.floor(Math.abs(m) / 60)).padStart(2, '0')}:${String(Math.abs(m) % 60).padStart(2, '0')}`;
+  const trustText = (r: Row) =>
+    r.loc === 'vpn' ? `Not reliable: ${r.org || 'this network'} is a VPN, proxy or cloud network, so this is the server's location, not the person's.`
+    : r.loc === 'mismatch' ? `Not reliable: their device clock is ${typeof r.boff === 'number' ? utc(r.boff) : 'in another time zone'}, but this place is ${r.timezone || 'elsewhere'}. Usually a VPN or proxy, or someone travelling.`
+    : r.city ? 'Approximate: the city of the IP address, not GPS. Mobile networks can show a city elsewhere in the same region.'
+    : 'Only the country is known for this IP address.';
   const placeName = (r: Row) => [r.city, r.region && r.region !== r.city ? r.region : null].filter(Boolean).join(', ') || 'Unknown place';
   const chipFor = {
     country: (r: Row): Chip => ({ kind: 'country', label: `${flag(r.country)} ${country(r.country)}`, params: { country: r.country || '-' } }),
@@ -125,6 +133,9 @@ export function initStats(o: Opts) {
       const s = await api(`/admin/stats?${query({ tz: tzSegments(Date.now() - (days + 1) * DAY, Date.now()) })}`);
       if (my !== seq.stats) return;
       renderKpis(s); renderChart(s); renderTops(s); renderMap(s.places || []);
+      const key = document.querySelector('#st-map-box .st-map-key');
+      if (key) key.textContent = 'Bigger circle: more visitors. Tap one to see only its visitors. Places come from IP addresses (city level).'
+        + (s.unreliable_locations ? ` ${num(s.unreliable_locations)} visitor${s.unreliable_locations === 1 ? '' : 's'} on a VPN or with a mismatched clock ${s.unreliable_locations === 1 ? 'is' : 'are'} left off the map.` : '');
       $('st-bots').textContent = s.bots ? `${num(s.bots)} visit${s.bots === 1 ? '' : 's'} by bots and crawlers left out.` : '';
     } catch (x) { if (my === seq.stats) fail('st-err', x); }
     finally { if (my === seq.stats) body.classList.remove('st-loading'); }
@@ -352,7 +363,8 @@ export function initStats(o: Opts) {
       h('span', { class: 'st-who-flag', 'aria-hidden': 'true' }, flag(v.country)),
       h('span', { class: 'st-who-main' },
         h('span', { class: 'st-who-name' }, h('b', null, deviceName(v)), h('code', { class: 'st-ip' }, v.ip || 'no IP'), h('span', { class: 'st-tag' }, v.source || 'direct'), isOnline(v.last) ? h('span', { class: 'st-tag ok' }, 'online') : null,
-          v.name ? h('span', { class: 'st-tag' }, `replied as ${v.name}`) : null, v.blocked ? h('span', { class: 'st-tag bad' }, 'blocked') : null),
+          v.name ? h('span', { class: 'st-tag' }, `replied as ${v.name}`) : null, v.blocked ? h('span', { class: 'st-tag bad' }, 'blocked') : null,
+          doubtful(v) ? h('span', { class: 'st-tag', title: trustText(v) }, v.loc === 'vpn' ? 'VPN / proxy' : 'place doubtful') : null),
         h('span', { class: 'st-sub' }, [placeName(v), country(v.country)].join(', '), ' · ', v.org || 'unknown network', v.browser ? ` · ${v.browser}` : '')),
       h('span', { class: 'st-who-meta' }, h('span', null, h('b', null, num(v.views)), ` view${v.views === 1 ? '' : 's'}`), h('span', { class: 'st-sub', title: when(v.last) }, ago(v.last))),
       h('span', { class: 'st-chev', 'aria-hidden': 'true' }, '›'));
@@ -398,7 +410,7 @@ export function initStats(o: Opts) {
     if (!d.open) return;   // closed while loading
     const at = visit || v;   // where they were on this visit (or their latest)
     const dl = (pairs: [string, any][]) => h('dl', { class: 'st-dl' }, pairs.filter(([, x]) => x != null && x !== '').map(([k, x]) => [h('dt', null, k), h('dd', null, x)]));
-    const hasXY = typeof at.lat === 'number' && typeof at.lon === 'number';
+    const hasXY = typeof at.lat === 'number' && typeof at.lon === 'number' && !doubtful(at) && !!at.city;
     const osm = hasXY ? `https://www.openstreetmap.org/?mlat=${at.lat}&mlon=${at.lon}#map=12/${at.lat}/${at.lon}` : null;
     let localTime = '';
     if (at.timezone) { try { localTime = new Date().toLocaleTimeString('en-US', { timeZone: at.timezone, hour: 'numeric', minute: '2-digit' }); } catch {} }
@@ -414,8 +426,8 @@ export function initStats(o: Opts) {
           ['Country', `${flag(at.country)} ${country(at.country)}`],
           ['Coordinates', hasXY ? [h('code', null, `${at.lat.toFixed(4)}, ${at.lon.toFixed(4)}`), ' ', h('a', { href: osm!, target: '_blank', rel: 'noopener' }, 'Open map ↗')] : null],
           ['Time zone', at.timezone ? `${at.timezone}${localTime ? ` (their time now: ${localTime})` : ''}` : null],
-        ]),
-        h('p', { class: 'st-note' }, "From the IP address: usually the right city or postal area, not a street. VPNs and mobile networks can show a nearby city instead.")),
+          ['Accuracy', at.country ? h('span', { class: doubtful(at) ? 'st-warn' : '' }, trustText(at)) : null],
+        ])),
       h('section', null, h('h4', null, 'Network'), dl([
         ['IP address', at.ip ? [h('code', { class: 'st-ip' }, at.ip), ' ', copy(at.ip)] : 'Not recorded'],
         ['Provider', at.org ? `${at.org}${at.asn ? ` (AS${at.asn})` : ''}` : at.asn ? `AS${at.asn}` : null],
@@ -442,10 +454,10 @@ export function initStats(o: Opts) {
         const Lf = await leaflet();
         if (!d.open) return;
         panelMap?.remove();
-        panelMap = Lf.map($('st-panel-map'), { scrollWheelZoom: false, zoomControl: true, attributionControl: true }).setView([at.lat, at.lon], 10);
+        panelMap = Lf.map($('st-panel-map'), { scrollWheelZoom: false, zoomControl: true, attributionControl: true }).setView([at.lat, at.lon], 8);
         tiles(Lf).addTo(panelMap);
-        // a circle, not a pin: the place is an area (about 5 km around Cloudflare's point)
-        Lf.circle([at.lat, at.lon], { radius: 5000, color: cssVar('--viz-1', '#2a6fdb'), weight: 2, fillOpacity: 0.15 }).addTo(panelMap);
+        // an area, not a pin: an IP address gives a city or region, not a street
+        Lf.circle([at.lat, at.lon], { radius: 25000, color: cssVar('--viz-1', '#2a6fdb'), weight: 2, fillOpacity: 0.15 }).addTo(panelMap);
         Lf.circleMarker([at.lat, at.lon], { radius: 5, color: cssVar('--card', '#fff'), weight: 2, fillColor: cssVar('--viz-1', '#2a6fdb'), fillOpacity: 1 }).addTo(panelMap);
       } catch { $('st-panel-map').replaceChildren(h('p', { class: 'st-empty' }, "The map couldn't load.")); }
     }

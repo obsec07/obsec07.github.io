@@ -128,8 +128,11 @@ change on the token. Never paste the token anywhere else.
   zone, IP address and network, device, screen and language, where they came from, and every page they read.
   From there you can show only that visitor or block their IP. **Download CSV** saves the visits you're
   looking at (filters included), with postal codes and coordinates, for Excel / Google Sheets.
-  Locations come from the IP address (Cloudflare): usually right to the city or postal area, never a
-  street, and VPNs or mobile networks can show a nearby city instead.
+  Locations come from the IP address (Cloudflare): a city or region, never a street, and mobile networks
+  can show another city in the same region. Visits from a VPN, proxy or cloud network, or from a device
+  whose clock is in a different time zone than the place, are marked **VPN / proxy** or **place
+  doubtful** and kept off the map and the city list (the panel says why). A visit where only the country
+  is known isn't put on the map either.
 - **Comments**: every guest reply with its IP address and location, its likes, and which reply it
   answers. The tab shows how many are new or reported. **Reported** lists the replies guests reported,
   with their reasons: delete them, or **Keep it** to clear the reports. Delete replies, block an IP (and
@@ -182,7 +185,7 @@ How it works:
 - **Guests** get one cookie, `guest`: a random id (no personal data) that remembers their likes, lets them
   delete their own replies and counts unique visitors. Each page view is recorded with the visitor's IP
   address, Cloudflare's location for it (country, region, city, network), browser, OS, device, screen
-  size, language and the site they came from. Bots and crawlers are counted separately; your own visits
+  size, language, the device's time zone offset (to spot VPNs) and the site they came from. Bots and crawlers are counted separately; your own visits
   while signed in to `/admin` aren't counted. Visits are deleted after 90 days, and so are the IP address
   and location stored with replies and the IP address stored with likes (used for the spam limits).
 - **Views:** each post counts its views (people only, once per visitor per 30 minutes; kept for good,

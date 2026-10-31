@@ -1312,3 +1312,7 @@ html.theme-vt, html.theme-vt * { transition: none !important; }
 @media (prefers-reduced-motion: reduce) { .banner-bell { animation: none; } }
 /* achievements: titles a little stronger */
 .pf-achievements .tl-title { font-weight: 600; }
+
+/* admin analytics: a place that is probably wrong */
+.st-warn { color: var(--ink); font-weight: 500; }
+.st-warn::before { content: '⚠ '; }

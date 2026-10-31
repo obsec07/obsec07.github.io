@@ -378,7 +378,7 @@ test('upgrading a database from before view counts fills them from the visits it
   env = { ...env, DB: { ...env.DB } };                               // a new Worker instance on the same database
   await call('GET', '/health');
   assert.deepEqual(rows('SELECT post, views FROM post_views ORDER BY post'), [{ post: 'hello-world', views: 2 }, { post: 'second-post', views: 1 }]);
-  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '5');
+  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '6');
 });
 
 test('admin: per-post stats, visits as CSV (formula-safe), online now', async () => {
@@ -396,7 +396,7 @@ test('admin: per-post stats, visits as CSV (formula-safe), online now', async ()
   assert.match(res.headers.get('content-type'), /text\/csv/);
   assert.match(res.headers.get('content-disposition'), /visits-7d\.csv/);
   const lines = csv.replace(/^﻿/, '').trim().split('\r\n');
-  assert.equal(lines[0], 'time,path,title,referrer,guest,ip,country,region,city,postal code,latitude,longitude,timezone,asn,network,came from,browser,os,device,model,language,screen,bot');
+  assert.equal(lines[0], 'time,path,title,referrer,guest,ip,country,region,city,postal code,latitude,longitude,timezone,location check,asn,network,came from,browser,os,device,model,language,screen,bot');
   assert.equal(lines.length, 3);
   assert.ok(lines[2].includes(`"'=HYPERLINK(""http://evil"",""x"")"`), lines[2]);   // not run as a formula
   assert.ok(lines[2].includes('203.0.113.7') && lines[2].includes('Mumbai,400070,19.07,72.87'), lines[2]);
@@ -502,7 +502,7 @@ test('upgrading a database from before answers (schema 2) adds them without losi
   const d = (await call('GET', '/posts/hello-world')).data;
   assert.deepEqual(d.comments.map((c) => [c.body, c.parent, c.likes]), [['old reply', null, 0]]);
   assert.ok(rows("SELECT name FROM sqlite_master WHERE name IN ('comment_likes', 'reports') ORDER BY name").length === 2);
-  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '5');
+  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '6');
 });
 
 test('upgrading a database from before postal codes (schema 3) keeps its visits and records postal codes from then on', async () => {
@@ -511,7 +511,7 @@ test('upgrading a database from before postal codes (schema 3) keeps its visits 
   env = { ...env, DB: { ...env.DB } };
   await call('POST', '/hit', { body: { path: '/whoami/', guest: G1 } });
   assert.deepEqual(rows('SELECT path, postal FROM visits ORDER BY id'), [{ path: '/', postal: null }, { path: '/whoami/', postal: '400070' }]);
-  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '5');
+  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '6');
 });
 
 test('where visits came from (tag, site or app) and the phone model; a visitor is an IP address and its device', async () => {
@@ -562,4 +562,31 @@ test('clean-up: old reply likes and reports lose their IP; likes of deleted repl
   await worker.scheduled({}, env);
   assert.deepEqual(rows('SELECT comment, ip FROM comment_likes'), [{ comment: a.id, ip: null }]);
   assert.deepEqual(rows('SELECT ip FROM reports'), [{ ip: null }]);
+});
+
+test('a place is only trusted (mapped, listed by city) when the network and the device clock agree with it', async () => {
+  const at = (ip, cf, off) => call('POST', '/hit', { ip, cf, body: { path: '/', off } });
+  await at('203.0.113.1', MUMBAI, 330);                                                      // Jio, device on IST: fine
+  await at('203.0.113.2', { ...MUMBAI, asOrganization: 'DigitalOcean, LLC', asn: 14061 }, 330);   // a cloud server
+  await at('203.0.113.3', { country: 'DE', region: 'Hesse', city: 'Frankfurt am Main', latitude: '50.11', longitude: '8.68', timezone: 'Europe/Berlin', asOrganization: 'Deutsche Telekom AG' }, 330);   // IST clock, German IP
+  await at('203.0.113.4', { country: 'IN', latitude: '21', longitude: '78', timezone: 'Asia/Kolkata' }, 330);   // only the country
+  await at('203.0.113.5', { ...MUMBAI, city: 'Pune' }, undefined);                           // an older tracker: no clock sent
+  const loc = Object.fromEntries(rows('SELECT ip, loc FROM visits').map((r) => [r.ip, r.loc]));
+  assert.deepEqual(loc, { '203.0.113.1': 'ok', '203.0.113.2': 'vpn', '203.0.113.3': 'mismatch', '203.0.113.4': 'ok', '203.0.113.5': 'ok' });
+  const s = (await call('GET', '/admin/stats?days=7', { token: GOOD })).data;
+  assert.deepEqual(s.places.map((p) => p.city).sort(), ['Mumbai', 'Pune']);                 // no VPN, mismatch or country-middle pins
+  assert.deepEqual(s.cities.map((c) => c.city).sort(), ['Mumbai', 'Pune']);
+  assert.equal(s.unreliable_locations, 2);
+  const people = (await call('GET', '/admin/visitors?days=7', { token: GOOD })).data.visitors;
+  assert.deepEqual(people.find((p) => p.ip === '203.0.113.3').boff, 330);
+  assert.equal(people.find((p) => p.ip === '203.0.113.2').loc, 'vpn');
+});
+
+test('upgrading from schema 5 adds the location check without losing visits', async () => {
+  await call('POST', '/hit', { body: { path: '/' } });
+  env.DB.sqlite.exec("ALTER TABLE visits DROP COLUMN loc; ALTER TABLE visits DROP COLUMN boff; UPDATE meta SET v = '5' WHERE k = 'schema'");
+  env = { ...env, DB: { ...env.DB } };   // a fresh worker isolate checks the schema again
+  await call('POST', '/hit', { body: { path: '/a', off: 330 } });
+  assert.equal(rows("SELECT v FROM meta WHERE k = 'schema'")[0].v, '6');
+  assert.deepEqual(rows('SELECT path, loc, boff FROM visits ORDER BY id').map((r) => [r.path, r.loc, r.boff]), [['/', null, null], ['/a', 'ok', 330]]);
 });
