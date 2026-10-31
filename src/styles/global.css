@@ -98,7 +98,7 @@ a:hover { text-decoration: underline; }
 
 /* ---- header ---- */
 .site-header { background: var(--bg); border-bottom: 1px solid var(--border); }
-.site-header .wrap { display: flex; align-items: center; gap: 26px; height: 92px; }
+.site-header > .wrap { display: flex; align-items: center; gap: 26px; height: 92px; }
 .logo { display: flex; align-items: center; gap: 12px; }
 .logo:hover { text-decoration: none; }
 .logo svg { height: 44px; width: auto; }
@@ -114,7 +114,7 @@ a:hover { text-decoration: underline; }
 .h-icon { width: 40px; height: 40px; border-radius: 50%; background: #1b2333; color: #fff; display: grid; place-items: center; font-size: 16px; }
 .h-icon.avatar { background: #4b5563; font-family: var(--pixel); font-size: 15px; }
 @media (max-width: 640px) {
-  .site-header .wrap { gap: 14px; height: 70px; }
+  .site-header > .wrap { gap: 14px; height: 70px; }
   .logo svg { height: 34px; }
   .logo .word { font-size: 22px; }
   .nav { gap: 12px; }
@@ -721,8 +721,11 @@ img.av { object-fit: cover; background: #12203a; border-radius: 50%; display: bl
   .profile-av { position: static; display: block; margin: 16px auto 0; width: 120px; height: 120px; }
   .profile-band, .profile-body { padding-left: 16px; min-height: 0; text-align: center; }
   .profile-band .mc-badges { justify-content: center; }
-  .profile-tabs { overflow-x: auto; }
+  .profile-tabs { flex-wrap: wrap; justify-content: center; gap: 0 4px; }
+  .trophies li { grid-template-columns: 36px 1fr; gap: 2px 12px; }
+  .tr-date { grid-column: 2; }
   .profile-tabs button { white-space: nowrap; font-size: 12px; }
+  .profile-find .dropdown { left: 50%; translate: -50% 0; max-width: calc(100vw - 32px); text-align: left; }
 }
 
 /* ---- /admin on the static site (login + post editor) ---- */
@@ -1316,3 +1319,94 @@ html.theme-vt, html.theme-vt * { transition: none !important; }
 /* admin analytics: a place that is probably wrong */
 .st-warn { color: var(--ink); font-weight: 500; }
 .st-warn::before { content: '⚠ '; }
+
+/* ===================== phones: sized to the screen ===================== */
+/* header: one menu button for everything once the links no longer fit */
+.h-menu { display: none; }
+.h-menu path { transition: transform .2s ease, opacity .2s ease; transform-origin: 12px 12px; }
+.h-menu.open .mm-a { transform: translateY(5px) rotate(45deg); }
+.h-menu.open .mm-b { opacity: 0; }
+.h-menu.open .mm-c { transform: translateY(-5px) rotate(-45deg); }
+.m-menu { position: absolute; left: 0; right: 0; top: 100%; max-height: calc(100dvh - 70px); overflow-y: auto; overscroll-behavior: contain; background: var(--card); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border-hi); box-shadow: var(--pop-shadow); animation: fade-up .18s ease both; }
+.m-menu .wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 18px; padding-top: 8px; padding-bottom: 12px; }
+.m-group { display: flex; flex-direction: column; padding: 6px 0; }
+.m-top { display: flex; align-items: center; min-height: 40px; font-family: var(--pixel); font-size: 13px; text-transform: uppercase; color: var(--ink); }
+.m-top.active { text-decoration: underline; text-underline-offset: 5px; text-decoration-thickness: 2px; }
+.m-sub { display: flex; align-items: center; min-height: 40px; padding-left: 10px; border-left: 2px solid var(--border); color: var(--ink-soft); font-size: 14.5px; }
+.m-top:hover, .m-sub:hover { color: var(--ink); text-decoration: none; }
+@media (max-width: 539px) {
+  .h-menu { display: grid; }
+  .nav > .nav-item:not(:first-child) { display: none; }
+}
+@media (max-width: 420px) {
+  .nav > .nav-item { display: none; }              /* Home is in the menu */
+  .site-header > .wrap { gap: 10px; height: 64px; }
+  .logo svg { height: 30px; }
+  .logo .word { font-size: 20px; }
+  .h-icons { gap: 7px; }
+  .h-icon { width: 38px; height: 38px; }
+}
+@media (max-width: 480px) { .banner { font-size: 15px; padding: 12px 14px; } }
+@media (max-width: 360px) { .pf-roles { font-size: 12px; } .pf-name { font-size: 24px; } .m-menu .wrap { gap: 4px 12px; } .m-sub { font-size: 13.5px; } }
+
+/* touch screens: links and buttons at least ~40px tall */
+@media (hover: none) and (pointer: coarse) {
+  .subnav .wrap { height: 46px; }
+  .subnav .wrap > a { display: inline-flex; align-items: center; min-height: 40px; }
+  .theme-toggle { height: 36px; padding: 0 12px; }
+  .recent-all { display: inline-flex; align-items: center; min-height: 40px; }
+  .crumbs-box a { min-height: 32px; }
+  .tl-title { display: inline-block; padding: 2px 0; }
+}
+
+@media (max-width: 640px) {
+  .home-top { display: none; }                      /* fullscreen toggle: not useful on a phone */
+  .home-head { margin-top: 18px; }
+  .thread-head h1 { font-size: 22px; line-height: 1.25; }
+  .page-head h1 { font-size: 22px; }
+}
+
+/* portfolio intro: photo beside the name, everything else full width */
+@media (max-width: 560px) {
+  .pf-hero { grid-template-columns: 72px minmax(0, 1fr); gap: 2px 14px; align-items: center; justify-items: stretch; padding: 18px 16px 20px; }
+  .pf-main { display: contents; }
+  .pf-photo { width: 72px; height: 72px; padding: 3px; grid-row: span 2; align-self: center; }
+  .pf-photo img { border-width: 2px; }
+  .pf-status { order: -1; grid-column: 1 / -1; justify-self: start; margin-bottom: 10px; }
+  .pf-name { grid-column: 2; align-self: end; font-size: 26px; gap: 0 10px; }
+  .pf-handle { font-size: 13.5px; }
+  .pf-roles { grid-column: 2; align-self: start; margin-top: 2px; font-size: 13.5px; }
+  .pf-headline, .pf-intro, .pf-meta, .pf-actions, .pf-socials { grid-column: 1 / -1; }
+  .pf-headline { margin-top: 14px; font-size: 15.5px; }
+  .pf-intro { font-size: 14.5px; }
+  .pf-actions { margin-top: 14px; }
+  .pf-btn { min-height: 44px; }
+  .pf-socials a { width: 40px; height: 40px; }
+  /* numbers: one tidy strip (3 across, the last two share a row) */
+  .pf-stats { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin-bottom: 20px; }
+  .pf-stat { grid-column: span 2; padding: 10px 12px; }
+  .pf-stats > :nth-child(4):nth-last-child(2), .pf-stats > :nth-child(5):last-child,
+  .pf-stats:has(> :nth-child(4):last-child) > *, .pf-stats:has(> :nth-child(2):last-child) > * { grid-column: span 3; }
+  .pf-stats > :only-child { grid-column: 1 / -1; }
+  .pf-v { font-size: 19px; }
+  .pf-l { font-size: 11.5px; margin-top: 2px; }
+}
+
+/* thread lists (blogs, Tools, achievements): the title gets the whole width; the date is in the line under it */
+@media (max-width: 480px) {
+  .tl-row { grid-template-columns: 32px minmax(0, 1fr); padding: 10px 12px; gap: 0 10px; }
+  .tl-last { display: none; }
+  .tl-av, .pf-ico { width: 32px; height: 32px; }
+  .tl-head { padding: 12px 14px; }
+  /* blog rows: one number column is enough */
+  .row { gap: 12px; padding: 10px 12px; min-height: 60px; }
+  .row .icon { width: 36px; height: 36px; }
+  .row .icon svg { width: 18px; height: 18px; }
+  .row .main .ctitle { font-size: 13px; }
+  .row .stats + .stats { display: none; }
+  .row .stats { min-width: 56px; }
+}
+/* member page tabs: scroll sideways instead of widening the page */
+.member-tabs { overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
+.member-tabs::-webkit-scrollbar { display: none; }
+.member-tabs > * { flex: 0 0 auto; }
