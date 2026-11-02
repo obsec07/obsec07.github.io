@@ -30,11 +30,11 @@
     },
     {
       "severity": "high",
-      "title": "JWT misconfiguration in a JavaScript file"
+      "title": "JWT misconfiguration"
     },
     {
       "severity": "medium",
-      "title": "Authentication bypass"
+      "title": "Authentication bypass in stage domain"
     },
     {
       "severity": "medium",
