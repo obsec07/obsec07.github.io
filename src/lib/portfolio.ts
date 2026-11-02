@@ -13,12 +13,21 @@ export const ACHIEVEMENT_KINDS = [
 ] as const;
 export type AchievementKind = (typeof ACHIEVEMENT_KINDS)[number]['key'];
 
+// vulnerabilities found, by severity (no amounts, no targets: just the kind of bug)
+export const SEVERITIES = [
+  { key: 'critical', label: 'Critical' },
+  { key: 'high', label: 'High' },
+  { key: 'medium', label: 'Medium' },
+  { key: 'low', label: 'Low' },
+] as const;
+export type Severity = (typeof SEVERITIES)[number]['key'];
+export interface Finding { severity: Severity; title: string }
+
 export interface Achievement {
   kind: AchievementKind;
   title: string;
   org: string;      // who gave it: NASA, a program, the certifying body…
   date: string;     // YYYY-MM or YYYY-MM-DD, or '' when it doesn't matter
-  amount: string;   // a bounty in US dollars (digits), or ''
   link: string;     // https://… or a page on this site (/posts/…), or ''
   detail: string;
 }
@@ -32,6 +41,8 @@ export interface Portfolio {
   intro: string;
   location: string;
   status: string;         // "Open to opportunities"; '' hides the badge
+  findings: Finding[];      // vulnerabilities found, shown grouped by severity
+  findingsNote: string;     // the line under them, e.g. why there are no writeups yet
   achievements: Achievement[];
   skills: SkillGroup[];
   experience: Job[];
@@ -39,11 +50,12 @@ export interface Portfolio {
   resume: { version: string; updated: string };   // version '' = no resume uploaded (public/resume.pdf)
 }
 
-export const LIMITS = { name: 60, headline: 120, role: 40, roles: 6, intro: 600, location: 60, status: 60, title: 100, org: 60, detail: 300, achievements: 40, group: 30, skill: 40, skills: 12, jobs: 12 } as const;
+export const LIMITS = { name: 60, headline: 120, role: 40, roles: 6, intro: 600, location: 60, status: 60, title: 100, org: 60, detail: 300, achievements: 40, finding: 80, findings: 60, findingsNote: 300, group: 30, skill: 40, skills: 12, jobs: 12 } as const;
 export const RESUME_FILE = 'public/resume.pdf';
 export const RESUME_MAX = 5e6;
 
 const KIND_KEYS = new Set<string>(ACHIEVEMENT_KINDS.map((k) => k.key));
+const SEVERITY_KEYS = new Set<string>(SEVERITIES.map((k) => k.key));
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])(-(0[1-9]|[12]\d|3[01]))?$/;
 const LINK_RE = /^(https?:\/\/[^\s<>"']+|\/[^\s<>"']*)$/i;
 const GH_RE = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
@@ -53,7 +65,7 @@ const list = (v: unknown) => (Array.isArray(v) ? v : []);
 
 export const DEFAULTS: Portfolio = {
   name: '', headline: '', roles: [], intro: '', location: '', status: '',
-  achievements: [], skills: [], experience: [], github: '', resume: { version: '', updated: '' },
+  findings: [], findingsNote: '', achievements: [], skills: [], experience: [], github: '', resume: { version: '', updated: '' },
 };
 
 /** Problems, keyed by field ("name", "achievements.2.title", …). */
@@ -73,6 +85,13 @@ export function validate(p: any): Record<string, string> {
   if (roles.length > LIMITS.roles) e.roles = `At most ${LIMITS.roles} lines.`;
   else if (roles.some((r) => r.length > LIMITS.role)) e.roles = `Each line at most ${LIMITS.role} characters.`;
   if (str(p?.github) && !GH_RE.test(str(p.github))) e.github = 'A GitHub username (letters, numbers, dashes).';
+  len('findingsNote', p?.findingsNote, LIMITS.findingsNote);
+  const found = list(p?.findings);
+  if (found.length > LIMITS.findings) e.findings = `At most ${LIMITS.findings}.`;
+  found.forEach((f: any, i: number) => {
+    if (!SEVERITY_KEYS.has(str(f?.severity))) e[`findings.${i}.severity`] = 'Pick a severity.';
+    len(`findings.${i}.title`, f?.title, LIMITS.finding, true);
+  });
   const ach = list(p?.achievements);
   if (ach.length > LIMITS.achievements) e.achievements = `At most ${LIMITS.achievements}.`;
   ach.forEach((a: any, i: number) => {
@@ -82,7 +101,6 @@ export function validate(p: any): Record<string, string> {
     len(`${k}.org`, a?.org, LIMITS.org);
     len(`${k}.detail`, a?.detail, LIMITS.detail);
     if (str(a?.date) && !MONTH_RE.test(str(a.date))) e[`${k}.date`] = 'YYYY-MM, or empty.';
-    if (str(a?.amount) && !/^\d{1,9}$/.test(str(a.amount).replace(/[$,\s]/g, ''))) e[`${k}.amount`] = 'Whole dollars, or empty.';
     if (str(a?.link) && !LINK_RE.test(str(a.link))) e[`${k}.link`] = 'https://… or /posts/…';
   });
   const skills = list(p?.skills);
@@ -117,9 +135,13 @@ export function clean(raw: any): Portfolio {
     location: pick('location', oneLine(raw?.location)),
     status: pick('status', oneLine(raw?.status)),
     github: pick('github', str(raw?.github)),
+    findings: ok('findings') ? list(raw?.findings).flatMap((f: any, i: number) => badEntry(`findings.${i}`) ? [] : [{
+      severity: str(f.severity) as Severity, title: oneLine(f.title),
+    }]) : [],
+    findingsNote: pick('findingsNote', oneLine(raw?.findingsNote)),
     achievements: list(raw?.achievements).slice(0, LIMITS.achievements).flatMap((a: any, i: number) => badEntry(`achievements.${i}`) ? [] : [{
       kind: str(a.kind) as AchievementKind, title: oneLine(a.title), org: oneLine(a.org), date: str(a.date),
-      amount: str(a.amount).replace(/[$,\s]/g, '').replace(/^0+(?=\d)/, ''), link: str(a.link), detail: str(a.detail),
+      link: str(a.link), detail: str(a.detail),
     }]),
     skills: list(raw?.skills).slice(0, LIMITS.skills).flatMap((g: any, i: number) => badEntry(`skills.${i}`) ? [] : [{
       group: oneLine(g.group), items: list(g.items).map(oneLine).filter(Boolean),

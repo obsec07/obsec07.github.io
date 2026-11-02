@@ -1,5 +1,5 @@
 ---
-title: $450-Blind LDAP Injection in an Identifier-Login
+title: Blind LDAP Injection in an Identifier-Login
 date: '2026-08-21'
 category: 0day
 description: ''

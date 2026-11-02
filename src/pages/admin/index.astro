@@ -154,8 +154,11 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
           <div class="frow"><div class="lab">Status</div><div class="fld"><input type="text" name="status" maxlength={PF_LIMITS.status} placeholder="Open to opportunities" /><div class="hint">A small badge with a green dot. Empty hides it.</div></div></div>
           <div class="frow"><div class="lab">Location</div><div class="fld"><input type="text" name="location" maxlength={PF_LIMITS.location} placeholder="City, Country (optional)" /></div></div>
           <div class="frow"><div class="lab">GitHub projects</div><div class="fld"><input type="text" name="github" maxlength="39" placeholder="GitHub username" autocomplete="off" spellcheck="false" /><div class="hint">Your newest and most starred public repositories show as Projects. Empty hides them.</div></div></div>
+          <div class="frow"><div class="lab">Vulnerabilities found</div><div class="fld"><div class="pf-rows" id="pf-find"></div><button type="button" class="save-btn" id="pf-find-add">+ Add vulnerability</button>
+            <div class="hint">Severity and the kind of bug, e.g. Critical · SQL injection. The home page counts them by severity. No amounts or targets are shown.</div></div></div>
+          <div class="frow"><div class="lab">Note under them</div><div class="fld"><input type="text" name="findingsNote" maxlength={PF_LIMITS.findingsNote} placeholder="Writeups for these stay private until each program allows disclosure." /><div class="hint">Empty hides the note.</div></div></div>
           <div class="frow"><div class="lab">Bug bounties</div><div class="fld"><div class="pf-rows" id="pf-bounty"></div><button type="button" class="save-btn" id="pf-bounty-add">+ Add bounty</button>
-            <div class="hint">Pick the writeup first: the finding, date and amount fill in from its post (a title like “$1200-Authentication bypass”). Amounts add up into the total on the home page.</div></div></div>
+            <div class="hint">Bugs with a published writeup. Pick the writeup first: the finding and date fill in from its post.</div></div></div>
           <div class="frow"><div class="lab">Hall of Fame</div><div class="fld"><div class="pf-rows" id="pf-hof"></div><button type="button" class="save-btn" id="pf-hof-add">+ Add Hall of Fame</button>
             <div class="hint">One per organisation, e.g. NASA. The link can be their Hall of Fame page.</div></div></div>
           <div class="frow"><div class="lab">Certifications</div><div class="fld"><div class="pf-rows" id="pf-cert"></div><button type="button" class="save-btn" id="pf-cert-add">+ Add certification</button>
@@ -257,7 +260,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
 <script>
   import yaml from 'js-yaml';
   import { validate, clean } from '../../lib/settings';
-  import { validate as validatePortfolio, clean as cleanPortfolio, ACHIEVEMENT_KINDS, RESUME_FILE, RESUME_MAX } from '../../lib/portfolio';
+  import { validate as validatePortfolio, clean as cleanPortfolio, ACHIEVEMENT_KINDS, SEVERITIES, RESUME_FILE, RESUME_MAX } from '../../lib/portfolio';
   import { initStats } from '../../scripts/admin-stats';
   import { marked } from 'marked';
   import DOMPurify from 'dompurify';
@@ -722,16 +725,15 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
     const GROUPS = [
       { key: 'hof', kind: 'hof', fields: [['org', 'text', 'Organisation, e.g. NASA', 60], ['date', 'month', 'When'], ['link', 'text', 'Link to their Hall of Fame page (optional)', 300], ['detail', 'textarea', 'Details (optional)', 300]] },
       { key: 'cert', kind: 'cert', fields: [['title', 'text', 'Certification, e.g. Certified Red Team Analyst (CRTA)', 100], ['org', 'text', 'Issued by', 60], ['date', 'month', 'When'], ['link', 'text', 'Credential or writeup link (optional)', 300], ['detail', 'textarea', 'Details (optional)', 300]] },
-      { key: 'bounty', kind: 'bounty', fields: [['link', 'post', 'Writeup: pick a post (or https:// link)', 300], ['title', 'text', 'Finding, e.g. Authentication bypass', 100], ['amount', 'text', 'Bounty in $', 12], ['org', 'text', 'Program (optional)', 60], ['date', 'month', 'When'], ['detail', 'textarea', 'Details (optional)', 300]] },
-      { key: 'other', kind: null, fields: [['kind', 'select', 'Kind'], ['title', 'text', 'Title, e.g. CVE-2026-12345', 100], ['org', 'text', 'From (optional)', 60], ['date', 'month', 'When'], ['amount', 'text', 'Amount in $ (optional)', 12], ['link', 'text', 'Link (optional)', 300], ['detail', 'textarea', 'Details (optional)', 300]] },
+      { key: 'bounty', kind: 'bounty', fields: [['link', 'post', 'Writeup: pick a post (or https:// link)', 300], ['title', 'text', 'Finding, e.g. Authentication bypass', 100], ['org', 'text', 'Program (optional)', 60], ['date', 'month', 'When'], ['detail', 'textarea', 'Details (optional)', 300]] },
+      { key: 'other', kind: null, fields: [['kind', 'select', 'Kind'], ['title', 'text', 'Title, e.g. CVE-2026-12345', 100], ['org', 'text', 'From (optional)', 60], ['date', 'month', 'When'], ['link', 'text', 'Link (optional)', 300], ['detail', 'textarea', 'Details (optional)', 300]] },
     ];
     const OTHER_KINDS = ACHIEVEMENT_KINDS.filter((k) => !['hof', 'cert', 'bounty'].includes(k.key));
     const groupOf = (a) => GROUPS.find((g) => g.kind === a.kind) || GROUPS[3];
-    const blankAchievement = (g) => ({ kind: g.kind || 'cve', title: '', org: '', date: '', amount: '', link: '', detail: '' });
+    const blankAchievement = (g) => ({ kind: g.kind || 'cve', title: '', org: '', date: '', link: '', detail: '' });
     const readGroup = (g) => readRows(`pf-${g.key}`, g.fields).map((row) => {
       const a = { ...blankAchievement(g), ...row, kind: g.kind || row.kind };
       if (a.kind === 'hof') a.title = 'Hall of Fame';
-      a.amount = a.amount.replace(/[$,\s]/g, '');
       return a;
     });
     // your posts, offered in the bounty "Writeup" field
@@ -739,19 +741,18 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       const list = $('pf-posts'); if (!list) return;
       list.replaceChildren(...posts.filter((p) => !p.data.draft).map((p) => new Option(p.data.title || p.slug, `/posts/${p.slug}`)));
     }
-    // picking a writeup fills the empty fields from its post: "$1200-How i found Authentication Bypass"
+    // picking a writeup fills the empty fields from its post ("How i found Authentication Bypass" -> "Authentication Bypass";
+    // an old "$1200-" prefix is dropped: amounts are never shown)
     $('pf-bounty').addEventListener('change', (e) => {
       if (e.target.dataset.k !== 'link') return;
       const post = posts.find((p) => `/posts/${p.slug}` === e.target.value.trim().replace(/\/$/, ''));
       if (!post) return;
       const row = e.target.closest('.pf-row'), field = (k) => row.querySelector(`[data-k="${k}"]`);
-      const m = /^\s*\$\s?([\d,.]+)\s*(k)?\s*[-–—:|]?\s*(.*)$/i.exec(post.data.title || '');
-      const amount = m ? Math.round(parseFloat(m[1].replace(/,/g, '')) * (m[2] ? 1000 : 1)) : NaN;
-      const title = ((m ? m[3] : post.data.title) || '').replace(/^how\s+i\s+found\s+(an?\s+)?/i, '').trim();
+      const title = (post.data.title || '').replace(/^\s*\$\s?[\d,.]+\s*k?\s*[-–—:|]?\s*/i, '').replace(/^how\s+i\s+found\s+(an?\s+)?/i, '').trim();
       if (!field('title').value && title) field('title').value = title.charAt(0).toUpperCase() + title.slice(1);
-      if (!field('amount').value && Number.isFinite(amount)) field('amount').value = String(amount);
       if (!field('date').value && post.data.date) field('date').value = isoDate(post.data.date).slice(0, 7);
     });
+    const FIND_FIELDS = [['severity', 'select', 'Severity', 0, SEVERITIES], ['title', 'text', 'Kind of bug, e.g. SQL injection', 80]];
     const JOB_FIELDS = [['role', 'text', 'Role', 100], ['org', 'text', 'Company / team', 60], ['from', 'month', 'From'], ['to', 'month', 'To (empty = now)'], ['detail', 'textarea', 'What you did (optional)', 300]];
     async function loadPortfolio() {
       const f = await gh(`${PORTFOLIO_FILE}?ref=${BRANCH}`);
@@ -761,7 +762,8 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
     }
     function fillPortfolio() {
       const f = $('adm-portfolio');
-      for (const k of ['name', 'headline', 'intro', 'location', 'status', 'github']) f.elements[k].value = portfolio[k];
+      for (const k of ['name', 'headline', 'intro', 'location', 'status', 'github', 'findingsNote']) f.elements[k].value = portfolio[k];
+      renderRows('pf-find', FIND_FIELDS, portfolio.findings, 'findings');
       f.elements.roles.value = portfolio.roles.join('\n');
       f.elements.skillsText.value = portfolio.skills.map((g) => `${g.group}: ${g.items.join(', ')}`).join('\n');
       for (const g of GROUPS) renderRows(`pf-${g.key}`, g.fields, portfolio.achievements.filter((a) => groupOf(a) === g), g.key);
@@ -782,9 +784,9 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       const box = $(id); box.innerHTML = '';
       items.forEach((it, i) => {
         const row = document.createElement('div'); row.className = 'pf-row';
-        for (const [k, type, label, max] of defs) {
+        for (const [k, type, label, max, opts] of defs) {
           let el;
-          if (type === 'select') { el = document.createElement('select'); for (const o of OTHER_KINDS) el.add(new Option(o.label, o.key)); }
+          if (type === 'select') { el = document.createElement('select'); for (const o of opts || OTHER_KINDS) el.add(new Option(o.label, o.key)); }
           else if (type === 'textarea') { el = document.createElement('textarea'); el.rows = 2; }
           else { el = document.createElement('input'); el.type = type === 'post' ? 'text' : type; if (type === 'month') el.placeholder = 'YYYY-MM'; if (type === 'post') el.setAttribute('list', 'pf-posts'); }
           if (max) el.maxLength = max;
@@ -817,11 +819,12 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       });
     }
     for (const g of GROUPS) rowsAction(`pf-${g.key}`, g.fields, g.key, () => blankAchievement(g));
+    rowsAction('pf-find', FIND_FIELDS, 'findings', () => ({ severity: 'critical', title: '' }));
     rowsAction('pf-exp', JOB_FIELDS, 'experience', () => ({ role: '', org: '', from: '', to: '', detail: '' }));
     function readPortfolio() {
       const f = $('adm-portfolio'), v = (k) => f.elements[k].value.trim();
       return {
-        name: v('name'), headline: v('headline'), intro: v('intro'), location: v('location'), status: v('status'), github: v('github').replace(/^@/, ''),
+        name: v('name'), headline: v('headline'), findingsNote: v('findingsNote'), findings: readRows('pf-find', FIND_FIELDS), intro: v('intro'), location: v('location'), status: v('status'), github: v('github').replace(/^@/, ''),
         roles: v('roles').split('\n').map((s) => s.trim()).filter(Boolean),
         skills: v('skillsText').split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
           const m = /^([^:]+):(.*)$/.exec(l);
@@ -850,14 +853,14 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
       if (!portfolio) { err.textContent = 'The portfolio is still loading. Try again in a moment.'; return; }
       const next = readPortfolio(), errs = validatePortfolio(next);
       for (const k of Object.keys(errs)) if (k.startsWith('skills')) { errs.skillsText = errs[k]; delete errs[k]; }
-      // "achievements.4.amount" (the saved list) -> the field in its group, e.g. "bounty.0.amount"
+      // "achievements.4.title" (the saved list) -> the field in its group, e.g. "bounty.0.title"
       const where = GROUPS.flatMap((g) => readRows(`pf-${g.key}`, g.fields).map((_, i) => [g, i]));
       for (const k of Object.keys(errs)) {
         const m = /^achievements\.(\d+)\.(\w+)$/.exec(k); if (!m || !where[+m[1]]) continue;
         const [g, i] = where[+m[1]], f = g.fields.some(([name]) => name === m[2]) ? m[2] : g.fields[0][0];
         errs[`${g.key}.${i}.${f}`] = errs[k]; delete errs[k];
       }
-      const general = ['achievements', 'experience'].filter((k) => errs[k]).map((k) => errs[k]);
+      const general = ['findings', 'achievements', 'experience'].filter((k) => errs[k]).map((k) => errs[k]);
       if (!showErrors(form, errs) || general.length) { err.textContent = general[0] || 'Fix the highlighted fields.'; return; }
       const files = [];
       if (newResume) { files.push({ path: RESUME_FILE, content: newResume.b64 }); next.resume = { version: Date.now().toString(36), updated: today() }; }

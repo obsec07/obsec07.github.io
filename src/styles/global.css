@@ -1410,3 +1410,35 @@ html.theme-vt, html.theme-vt * { transition: none !important; }
 .member-tabs { overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
 .member-tabs::-webkit-scrollbar { display: none; }
 .member-tabs > * { flex: 0 0 auto; }
+
+/* vulnerabilities found: severity tabs side by side (radio buttons, no script), the picked one's reports below in
+   the achievements' row style; no colours */
+.pf-vulns { margin: 0 0 22px; }
+.pf-sev-tabs { position: relative; display: flex; gap: 4px; padding: 0 12px; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+.pf-sev-tabs::-webkit-scrollbar { display: none; }
+.pf-sev-tabs label { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; min-height: 44px; padding: 0 12px; font-family: var(--pixel); font-size: 13px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; cursor: pointer; user-select: none; }
+.pf-sev-tabs label:hover { color: var(--ink); }
+.pf-sev-tabs input:checked + label { color: var(--ink); border-bottom-color: var(--ink); }
+.pf-sev-tabs input:focus-visible + label { outline: 2px solid var(--ink); outline-offset: -4px; border-radius: 3px; }
+.pf-sev-n { font-family: var(--body); font-size: 13.5px; letter-spacing: 0; }
+.pf-sev-panel { display: none; }
+.pf-vulns:has(#pf-sev-critical:checked) .pf-sev-critical, .pf-vulns:has(#pf-sev-high:checked) .pf-sev-high,
+.pf-vulns:has(#pf-sev-medium:checked) .pf-sev-medium, .pf-vulns:has(#pf-sev-low:checked) .pf-sev-low { display: block; }
+.pf-vulns .tl-row { grid-template-columns: 36px minmax(0, 1fr) 170px; }
+@supports not selector(:has(*)) { .pf-sev-panel { display: block; } }   /* old browsers: every severity, one after another */
+.pf-vulns .tl-title { font-weight: 600; }
+.pf-vulns .tl-sub { white-space: normal; }
+.pf-vuln-note { display: flex; align-items: center; gap: 9px; margin: 0; padding: 11px 18px; border-top: 1px solid var(--border); font-size: 13.5px; color: var(--ink-soft); }
+.pf-vuln-note svg { flex: 0 0 auto; color: var(--muted); }
+@media (max-width: 480px) {
+  .pf-sev-tabs { padding: 0 6px; gap: 0; }
+  .pf-sev-tabs label { flex: 1 0 auto; justify-content: center; padding: 0 8px; font-size: 12px; }
+  .pf-vulns .tl-row { grid-template-columns: 32px minmax(0, 1fr); }
+  .pf-vuln-note { align-items: flex-start; padding: 10px 14px; }
+  .pf-vuln-note svg { margin-top: 2px; }
+}
+
+/* admin: a vulnerability is one line (severity, kind of bug, buttons) */
+#pf-find .pf-row { grid-template-columns: 130px minmax(0, 1fr) auto; align-items: end; }
+#pf-find .pf-c-title, #pf-find .pf-ctl { grid-column: auto; }
+@media (max-width: 640px) { #pf-find .pf-row { grid-template-columns: 1fr auto; } #pf-find .pf-c-title { grid-column: 1 / -1; grid-row: 2; } }
