@@ -3,7 +3,7 @@
 // GitHub projects. Everything comes from src/data/portfolio.json (/admin → Portfolio); empty parts are left out.
 import { SITE, SOCIAL_LINKS, avatarUrl } from '../config';
 import { PORTFOLIO } from '../config';
-import { ACHIEVEMENT_KINDS, fmtMonth } from '../lib/portfolio';
+import { ACHIEVEMENT_KINDS, SEVERITIES, fmtMonth } from '../lib/portfolio';
 import { getCollection } from 'astro:content';
 import { isLive } from '../lib/posts';
 
@@ -19,9 +19,9 @@ const money = (n: number) => n.toLocaleString('en-US');
 
 // the numbers strip: only the ones that aren't zero
 const count = (k: string) => P.achievements.filter((a) => a.kind === k).length;
-const bounties = P.achievements.reduce((s, a) => s + (a.kind === 'bounty' ? Number(a.amount) || 0 : 0), 0);
+const found = P.findings.length;
 const stats = [
-  { pre: '$', n: bounties, label: 'in bug bounties' },
+  { n: found, label: found === 1 ? 'vulnerability reported' : 'vulnerabilities reported' },
   { n: count('hof'), label: count('hof') === 1 ? 'Hall of Fame' : 'Halls of Fame' },
   { n: count('cert'), label: count('cert') === 1 ? 'certification' : 'certifications' },
   { n: count('cve'), label: count('cve') === 1 ? 'CVE' : 'CVEs' },
@@ -29,6 +29,9 @@ const stats = [
   { n: ctf, label: 'CTF writeups' },
 ].filter((s) => s.n > 0);
 
+// vulnerabilities found: a tab per severity (most severe first), each listing its reports
+const bySeverity = SEVERITIES.map((v) => ({ ...v, items: P.findings.filter((f) => f.severity === v.key) })).filter((v) => v.items.length > 0);
+const BUG = '<path d="M9 7.5V6a3 3 0 0 1 6 0v1.5"/><rect x="7" y="7.5" width="10" height="12" rx="5"/><path d="M12 11v8.5M7 12H4M20 12h-3M7 16.5l-2.5 1.5M17 16.5l2.5 1.5M7.5 9 5 7.5M16.5 9 19 7.5"/>';
 const KIND = Object.fromEntries(ACHIEVEMENT_KINDS.map((k) => [k.key, k.label]));
 // Tool posts (the Tools blog) named like a repository describe that project on the home page.
 const toolPosts = (await getCollection('posts', isLive)).filter((p) => p.data.category === 'tools');
@@ -39,7 +42,7 @@ const heading = (a: (typeof P.achievements)[number]) => (a.kind === 'hof' && a.o
 const line = (a: (typeof P.achievements)[number]) =>
   [a.kind === 'hof' && a.org ? a.title : KIND[a.kind], a.kind !== 'hof' ? a.org : '', a.detail].filter(Boolean).join(' · ');
 const ICON: Record<string, string> = {
-  bounty: '<path d="M12 2v20M17 6.5C17 4.6 14.8 3.5 12 3.5S7 4.6 7 6.6c0 4.8 10 2.6 10 7.5 0 2.1-2.2 3.4-5 3.4s-5.2-1.2-5.2-3.2"/>',
+  bounty: '<rect x="8" y="6" width="8" height="14" rx="4"/><path d="M12 10v10M8 13H4M20 13h-4M8 17l-3 2M16 17l3 2M8 9 5 7M16 9l3-2M10 6l-1-3M14 6l1-3"/>',
   hof: '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/>',
   cert: '<circle cx="12" cy="9" r="6"/><path d="m9 14.5-2 7 5-3 5 3-2-7"/>',
   cve: '<path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6z"/><path d="m9 12 2 2 4-4"/>',
@@ -90,7 +93,38 @@ const person = { '@context': 'https://schema.org', '@type': 'Person', name, alte
 
 {stats.length > 0 && (
   <div class="pf-stats">
-    {stats.map((s) => <div class="pf-stat"><span class="pf-v">{s.pre && <span class="pf-pre">{s.pre}</span>}<b class="pf-n">{money(s.n)}</b></span><span class="pf-l">{s.label}</span></div>)}
+    {stats.map((s) => <div class="pf-stat"><span class="pf-v"><b class="pf-n">{money(s.n)}</b></span><span class="pf-l">{s.label}</span></div>)}
+  </div>
+)}
+
+{bySeverity.length > 0 && (
+  <div class="threadlist pf-vulns" id="vulnerabilities">
+    <div class="tl-head"><span>Vulnerabilities found</span><span class="pf-tl-count">{found} reported</span></div>
+    <div class="pf-sev-tabs" role="radiogroup" aria-label="Severity">
+      {bySeverity.map((v, i) => (
+        <Fragment>
+          <input class="sr-only" type="radio" name="pf-sev" id={`pf-sev-${v.key}`} value={v.key} checked={i === 0} />
+          <label for={`pf-sev-${v.key}`}>{v.label} <span class="pf-sev-n">({v.items.length})</span></label>
+        </Fragment>
+      ))}
+    </div>
+    {bySeverity.map((v) => (
+      <div class={`tl-rows pf-sev-panel pf-sev-${v.key}`} aria-label={`${v.label} reports`}>
+        {v.items.map((f) => (
+          <div class="tl-row">
+            <span class="tl-av pf-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" set:html={BUG} /></span>
+            <div class="tl-main"><span class="tl-title">{f.title}</span><div class="tl-sub">{v.label} severity<span class="pf-phone"> · writeup private</span></div></div>
+            <dl class="tl-stats">
+              <div><dt>Severity:</dt><dd>{v.label}</dd></div>
+              <div><dt>Writeup:</dt><dd>Private</dd></div>
+            </dl>
+          </div>
+        ))}
+      </div>
+    ))}
+    {P.findingsNote && (
+      <p class="pf-vuln-note"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>{P.findingsNote}</p>
+    )}
   </div>
 )}
 
@@ -105,11 +139,11 @@ const person = { '@context': 'https://schema.org', '@type': 'Person', name, alte
             <span class="tl-av pf-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" set:html={ICON[a.kind]} /></span>
             <div class="tl-main">
               {link ? <a class="tl-title" {...link}>{heading(a)}</a> : <span class="tl-title">{heading(a)}</span>}
-              <div class="tl-sub">{line(a)}{a.amount && <span class="pf-phone"> · ${money(Number(a.amount))}</span>}{a.date && <span class="pf-phone"> · {fmtMonth(a.date)}</span>}</div>
+              <div class="tl-sub">{line(a)}{a.date && <span class="pf-phone"> · {fmtMonth(a.date)}</span>}</div>
             </div>
             <dl class="tl-stats">
               <div><dt>Type:</dt><dd>{KIND[a.kind]}</dd></div>
-              <div><dt>{a.amount ? 'Reward:' : 'Proof:'}</dt><dd>{a.amount ? `$${money(Number(a.amount))}` : link ? <a {...link}>{/^\/posts\//.test(a.link) ? 'Writeup' : 'Link'}</a> : '–'}</dd></div>
+              <div><dt>Proof:</dt><dd>{link ? <a {...link}>{/^\/posts\//.test(a.link) ? 'Writeup' : 'Link'}</a> : '–'}</dd></div>
             </dl>
             <div class="tl-last"><div class="tl-last-meta"><div class="tl-last-d">{a.date ? fmtMonth(a.date) : '–'}</div><div class="tl-last-u">{SITE.handle}</div></div></div>
           </div>

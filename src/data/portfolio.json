@@ -11,13 +11,47 @@
   "location": "",
   "status": "",
   "github": "obsec07",
+  "findings": [
+    {
+      "severity": "critical",
+      "title": "SQL injection"
+    },
+    {
+      "severity": "critical",
+      "title": "Broken access control"
+    },
+    {
+      "severity": "critical",
+      "title": "Authentication bypass"
+    },
+    {
+      "severity": "high",
+      "title": "DOM-based XSS"
+    },
+    {
+      "severity": "high",
+      "title": "JWT misconfiguration in a JavaScript file"
+    },
+    {
+      "severity": "medium",
+      "title": "Authentication bypass"
+    },
+    {
+      "severity": "medium",
+      "title": "Internal disclosure of learning materials"
+    },
+    {
+      "severity": "medium",
+      "title": "Reflected XSS"
+    }
+  ],
+  "findingsNote": "Writeups for these stay private until each program allows disclosure.",
   "achievements": [
     {
       "kind": "hof",
       "title": "Hall of Fame",
       "org": "NASA",
       "date": "",
-      "amount": "",
       "link": "",
       "detail": "Acknowledged for responsibly reported security research."
     },
@@ -26,7 +60,6 @@
       "title": "Hall of Fame",
       "org": "Deutsche Telekom",
       "date": "",
-      "amount": "",
       "link": "",
       "detail": "Acknowledged for responsibly reported security research."
     },
@@ -35,7 +68,6 @@
       "title": "Certified Red Team Analyst (CRTA)",
       "org": "",
       "date": "2026-10",
-      "amount": "",
       "link": "/posts/how-i-passed-crta",
       "detail": "Passed the practical exam: recon, web vulnerabilities, Linux escalation and an Active Directory attack path."
     },
@@ -44,7 +76,6 @@
       "title": "Authentication bypass",
       "org": "",
       "date": "2026-08",
-      "amount": "1200",
       "link": "/posts/how-i-found-authentication-bypass",
       "detail": ""
     },
@@ -53,7 +84,6 @@
       "title": "Blind LDAP injection in an identifier login",
       "org": "",
       "date": "2026-08",
-      "amount": "450",
       "link": "/posts/blind-ldap-injection-in-an-identifier-login",
       "detail": ""
     }
