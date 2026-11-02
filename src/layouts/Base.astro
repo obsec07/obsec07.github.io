@@ -173,38 +173,12 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
           if (el.classList.contains('row')) el.classList.remove('unread'); else el.remove();
         });
       })();
-      // sections, cards and rows fade up gently as they scroll into view (not for people who turn animation off)
-      (function () {
-        if (!('IntersectionObserver' in window) || matchMedia('(prefers-reduced-motion: reduce)').matches || /\/admin\/?$/.test(location.pathname)) return;
-        var els = document.querySelectorAll('.section, .recent-card, .tl-row, .post-item, .widget, .message, .post-nav, .related, .reply-thread, .pf-stat, .pf-ach, .pf-sec');
-        var io = new IntersectionObserver(function (entries) {
-          entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('rv-in'); io.unobserve(e.target); } });
-        }, { rootMargin: '0px 0px -6% 0px' });
-        els.forEach(function (el, i) { el.classList.add('rv'); el.style.setProperty('--rv-d', (i % 6) * 45 + 'ms'); io.observe(el); });
-      })();
-      // dynamic touches: decrypting titles, a light that follows the pointer, numbers that count up, pictures that
-      // come into focus, # links on headings. Everything stays still for people who turn animation off.
+      // small touches: the logo flickers on hover, a light follows the pointer on cards, live numbers count to their new
+      // value, # links on headings. Nothing moves on scroll. Everything stays still for people who turn animation off.
       (function () {
         var still = matchMedia('(prefers-reduced-motion: reduce)').matches, admin = /^\/admin(\/|$)/.test(location.pathname);
         var GLYPHS = '#$%&*+<>/\\=?!01ABCDEFX';
         function glyph() { return GLYPHS[(Math.random() * GLYPHS.length) | 0]; }
-        // the title types itself out through a few random characters; the rest of it already holds its place
-        function decrypt(el, ms) {
-          if (el.children.length || el._scr) return;
-          var text = el.textContent, len = text.length; if (!len) return;
-          var x = document.createElement('span'), rest = document.createElement('span');
-          x.className = 'scr-x'; rest.className = 'scr-rest'; rest.setAttribute('aria-hidden', 'true'); x.setAttribute('aria-hidden', 'true');
-          el._scr = 1; el.setAttribute('aria-label', text);
-          var done = document.createTextNode(''); el.textContent = ''; el.append(done, x, rest);
-          var t0 = performance.now(), last = 0;
-          (function step(now) {
-            var p = Math.min(1, (now - t0) / ms), n = Math.floor(p * len), w = Math.min(4, len - n);
-            done.data = text.slice(0, n); rest.textContent = text.slice(n + w);
-            if (now - last > 45) { last = now; x.textContent = text.slice(n, n + w).replace(/\S/g, glyph); }
-            if (p < 1) requestAnimationFrame(step);
-            else { el.textContent = text; el.removeAttribute('aria-label'); el._scr = 0; }
-          })(t0);
-        }
         // a short word (the logo) flickers through characters in place
         function flicker(el, ms) {
           if (el._scr) return; var text = el.textContent; el._scr = 1;
@@ -216,7 +190,6 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
           })(t0);
         }
         if (!still && !admin) {
-          document.querySelectorAll('.thread-head h1, .page-head h1, .pf-nm').forEach(function (h) { decrypt(h, Math.min(900, 280 + h.textContent.length * 16)); });
           var logo = document.querySelector('.logo');
           if (logo) logo.addEventListener('mouseenter', function () { logo.querySelectorAll('.word > span').forEach(function (s) { flicker(s, 420); }); });
           // the light under the pointer on cards and rows
@@ -232,7 +205,7 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
             });
           }
         }
-        // numbers count up the first time they come into view; the live numbers (online, messages) count to their new value
+        // live numbers (online, messages) are filled in as they arrive
         var fmt = function (n) { return Math.round(n).toLocaleString('en-US'); };
         var num = function (el) { return Number(el.textContent.replace(/,/g, '')); };
         function run(el, from, to) {
@@ -249,24 +222,6 @@ const whoamiHref = (import.meta.env.BASE_URL.replace(/\/$/, '') + '/whoami').rep
           if (still || el._cw !== 'run' && el._cw !== 'done') { el.textContent = fmt(to); return; }   // not shown yet: counts up from 0 to it later
           var from = num(el); if (from !== to) run(el, isFinite(from) ? from : 0, to);
         };
-        if (!still && !admin && 'IntersectionObserver' in window) {
-          var io = new IntersectionObserver(function (entries) {
-            entries.forEach(function (e) {
-              if (!e.isIntersecting) return; io.unobserve(e.target);
-              var to = num(e.target); if (isFinite(to) && to > 0) run(e.target, 0, to); else e.target._cw = 'done';
-            });
-          }, { threshold: .6 });
-          document.querySelectorAll('.fstats dd, .ac-stats b, .row .stats .n, [data-online], [data-ostat], [data-fstat], .pf-n').forEach(function (el) {
-            if (/^\d[\d,]*$/.test(el.textContent.trim())) { el._cw = 'wait'; io.observe(el); }
-          });
-        }
-        // pictures in a post fade in sharp once they've loaded
-        if (!still) document.querySelectorAll('.prose img').forEach(function (img) {
-          if (img.complete) return;
-          img.classList.add('img-wait');
-          var show = function () { img.classList.remove('img-wait'); };
-          img.addEventListener('load', show); img.addEventListener('error', show); setTimeout(show, 6000);
-        });
         // # next to each heading in a post: copies a link straight to that section ("Link copied", from the share bar)
         document.querySelectorAll('.message .prose h2[id], .message .prose h3[id]').forEach(function (h) {
           var a = document.createElement('a');

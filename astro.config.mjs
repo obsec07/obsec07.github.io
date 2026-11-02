@@ -61,6 +61,23 @@ function contentSecurityPolicy() {
   };
 }
 
+// A picture link on a line of its own shows the picture: a bare https://…/shot.png (GitHub-style autolink) or
+// [name](https://…/shot.png). The link text becomes the picture's name. (The /admin preview does the same.)
+const IMAGE_URL = /^(https?:\/\/|\/)[^\s]+\.(png|jpe?g|gif|webp|avif|svg)(\?[^\s#]*)?(#[^\s]*)?$/i;
+function remarkImageLinks() {
+  const walk = (node) => {
+    for (const child of node.children || []) {
+      if (child.type === 'paragraph' && child.children.length === 1 && child.children[0].type === 'link' && IMAGE_URL.test(child.children[0].url)) {
+        const link = child.children[0], text = (link.children || []).map((c) => c.value || '').join('').trim();
+        child.children = [{ type: 'image', url: link.url, alt: text && text !== link.url ? text : '', title: link.title || null }];
+      } else if (child.type === 'paragraph' && child.children.length === 1 && child.children[0].type === 'text' && IMAGE_URL.test(child.children[0].value.trim())) {
+        child.children = [{ type: 'image', url: child.children[0].value.trim(), alt: '', title: null }];   // a bare /uploads/… path
+      } else walk(child);
+    }
+  };
+  return (tree) => walk(tree);
+}
+
 // `site` is the public URL used for RSS + sitemap links. Set SITE_URL (e.g. https://tobi.sh);
 // on Render it falls back to the service URL automatically.
 // BASE_PATH is only for the static GitHub Pages build (e.g. '/secblog' for a project page); the Node server always serves from '/'.
@@ -71,6 +88,7 @@ export default defineConfig({
   // /account and /members are empty shells the Node server fills per visitor, /admin is the CMS — nothing for search engines
   integrations: [sitemap({ filter: (page) => !/\/(account|members|admin)\/?$/.test(new URL(page).pathname) }), contentSecurityPolicy()],
   markdown: {
+    remarkPlugins: [remarkImageLinks],
     // long code lines scroll sideways instead of wrapping (a wrapped `charset=utf-` / `8` misreads as two lines).
     // The <code> inside each block is what scrolls (see .prose pre code), so the "Code:" bar on the <pre> stays put;
     // it also takes the keyboard focus stop, so arrow keys scroll it.
