@@ -84,7 +84,7 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
             </div>
             <div class="adm-body-tools">
               <label class="save-btn adm-file">Insert picture or video<input type="file" id="adm-img" accept="image/*,video/mp4,video/webm,video/quicktime" multiple /></label>
-              <span class="hint" id="adm-img-hint">JPG, PNG, WebP or GIF pictures (big ones are shrunk to 1600px wide) and MP4, WebM or MOV videos up to 50 MB. They upload when you press Save.</span>
+              <span class="hint" id="adm-img-hint">Or paste a screenshot / drop files into the text, or put a picture link on a line of its own. JPG, PNG, WebP or GIF (big ones are shrunk to 1600px wide), MP4, WebM or MOV up to 50 MB. They upload when you press Save.</span>
             </div>
             <ul class="adm-imgs" id="adm-imgs" hidden></ul>
             <div class="adm-views" role="group" aria-label="Editor view"><button type="button" data-view="write" aria-pressed="true">Write</button><button type="button" data-view="preview" aria-pressed="false">Preview</button></div>
@@ -457,6 +457,15 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
     function renderPreview() {
       const f = $('adm-editor'), box = $('adm-preview');
       box.innerHTML = DOMPurify.sanitize(marked.parse(f.elements.body.value || '*Nothing written yet.*', { gfm: true, async: false }));
+      // a picture link on a line of its own shows the picture, like on the site (astro.config.mjs remarkImageLinks)
+      box.querySelectorAll('p').forEach((para) => {
+        const a = para.firstElementChild, bare = !a && para.textContent.trim();
+        if (!bare && (para.childElementCount !== 1 || a.tagName !== 'A' || para.textContent.trim() !== a.textContent.trim())) return;
+        const url = bare || a.getAttribute('href') || '';
+        if (!/^(https?:\/\/|\/)[^\s]+\.(png|jpe?g|gif|webp|avif|svg)(\?[^\s#]*)?(#[^\s]*)?$/i.test(url)) return;
+        const img = document.createElement('img'); img.src = url; img.alt = bare || a.textContent.trim() === url ? '' : a.textContent.trim();
+        para.replaceChildren(img);
+      });
       const h = document.createElement('h1'); h.className = 'adm-preview-title'; h.textContent = f.elements.title.value.trim() || 'Untitled'; box.prepend(h);
       // pictures not uploaded yet: shown from this device
       box.querySelectorAll('img, video').forEach((el) => { for (const [p, im] of pending) if (el.getAttribute('src') === sitePath(p)) el.src = im.url; });
@@ -986,8 +995,22 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
     });
     $('adm-draft-discard').addEventListener('click', () => { dropDraft(editing && editing.slug); $('adm-draft-note').hidden = true; });
     window.addEventListener('beforeunload', (e) => { if (isDirty()) { keepDraft(); e.preventDefault(); e.returnValue = ''; } });
-    $('adm-img').addEventListener('change', async (e) => {
-      const files = [...(e.target.files || [])]; e.target.value = '';
+    // pictures and videos: from "Insert picture or video", pasted into the text (a screenshot), or dropped on it
+    $('adm-img').addEventListener('change', (e) => { const files = [...(e.target.files || [])]; e.target.value = ''; addFiles(files); });
+    const media = (list) => [...(list || [])].filter((f) => /^(image|video)\//.test(f.type));
+    $('adm-editor').elements.body.addEventListener('paste', (e) => {
+      const files = media(e.clipboardData && e.clipboardData.files); if (!files.length) return;   // plain text pastes as usual
+      e.preventDefault(); addFiles(files);
+    });
+    $('adm-editor').elements.body.addEventListener('dragover', (e) => { if ([...(e.dataTransfer?.items || [])].some((i) => i.kind === 'file')) { e.preventDefault(); e.currentTarget.classList.add('adm-drop'); } });
+    $('adm-editor').elements.body.addEventListener('dragleave', (e) => e.currentTarget.classList.remove('adm-drop'));
+    $('adm-editor').elements.body.addEventListener('drop', (e) => {
+      e.currentTarget.classList.remove('adm-drop');
+      const files = media(e.dataTransfer && e.dataTransfer.files); if (!files.length) return;
+      e.preventDefault(); e.currentTarget.focus(); addFiles(files);
+    });
+    const HINT = $('adm-img-hint').textContent;
+    async function addFiles(files) {
       const hint = $('adm-img-hint'), ta = $('adm-editor').elements.body;
       hint.classList.remove('adm-ferr');
       for (const file of files) {
@@ -1000,9 +1023,9 @@ const extraPages = [profileUrl(SITE.handle), `${base}/search-index.json`, `${bas
           insertAtCursor(ta, im.video ? `${lead}<video src="${sitePath(im.path)}" controls preload="metadata" playsinline></video>\n\n` : `${lead}![${im.name.replace(/-/g, ' ')}](${sitePath(im.path)})\n\n`);
         } catch (x) { hint.textContent = x.message; hint.classList.add('adm-ferr'); showPending(); return; }
       }
-      hint.textContent = 'JPG, PNG, WebP or GIF pictures (big ones are shrunk to 1600px wide) and MP4, WebM or MOV videos up to 50 MB. They upload when you press Save.';
+      hint.textContent = HINT;
       showPending();
-    });
+    }
     $('adm-imgs').addEventListener('click', (e) => {
       const b = e.target.closest('[data-rm]'); if (!b) return;
       const p = b.dataset.rm, im = pending.get(p), ta = $('adm-editor').elements.body;
